@@ -1,6 +1,7 @@
-import {
+﻿import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   globalShortcut,
   ipcMain,
@@ -18,6 +19,7 @@ import { toMarkdown } from "../shared/markdown.js";
 import type {
   AppSettings,
   BackupEntry,
+  BatchExportFormat,
   ExportPayload,
   NoteRecord,
   NotesBackup,
@@ -43,6 +45,12 @@ const DEFAULT_SETTINGS: StoredSettings = {
   hotkey: DEFAULT_HOTKEY,
   startHidden: false,
   lockOnHide: true,
+  launchAtLogin: false,
+  theme: "light",
+  fontFamily: "",
+  fontSize: 16,
+  lineWidth: 880,
+  lineHeight: 1.72,
   privacyPinHash: null,
   privacyPinSalt: null
 };
@@ -136,6 +144,12 @@ function publicSettings(settings: StoredSettings): AppSettings {
     hotkey: settings.hotkey,
     startHidden: settings.startHidden,
     lockOnHide: settings.lockOnHide,
+    launchAtLogin: settings.launchAtLogin,
+    theme: settings.theme,
+    fontFamily: settings.fontFamily,
+    fontSize: settings.fontSize,
+    lineWidth: settings.lineWidth,
+    lineHeight: settings.lineHeight,
     hasPrivacyPin: Boolean(settings.privacyPinHash && settings.privacyPinSalt)
   };
 }
@@ -222,6 +236,105 @@ function safeExportName(name: string, ext: string) {
   return `${base || "未命名记录"}.${ext}`;
 }
 
+async function uniqueExportPath(directory: string, fileName: string) {
+  const parsed = path.parse(fileName);
+  let candidate = path.join(directory, fileName);
+  let index = 2;
+  while (true) {
+    try {
+      await fs.access(candidate, fsConstants.F_OK);
+      candidate = path.join(directory, `${parsed.name}-${index}${parsed.ext}`);
+      index += 1;
+    } catch {
+      return candidate;
+    }
+  }
+}
+
+function isBatchExportFormat(value: unknown): value is BatchExportFormat {
+  return typeof value === "string" && ALLOWED_EXPORT_FORMATS.has(value);
+}
+
+function plainDoc(text: string): NoteRecord["content"] {
+  return {
+    type: "doc",
+    content: [
+      {
+        type: "paragraph",
+        content: text ? [{ type: "text", text }] : undefined
+      }
+    ]
+  };
+}
+
+function markdownToDoc(markdown: string): NoteRecord["content"] {
+  const blocks: NonNullable<NoteRecord["content"]["content"]> = [];
+  let pendingParagraph: string[] = [];
+
+  const flushParagraph = () => {
+    const text = pendingParagraph.join(" ").trim();
+    if (text) {
+      blocks.push({ type: "paragraph", content: [{ type: "text", text }] });
+    }
+    pendingParagraph = [];
+  };
+
+  for (const rawLine of markdown.split(/\r?\n/)) {
+    const line = rawLine.trimEnd();
+    if (!line.trim()) {
+      flushParagraph();
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      blocks.push({
+        type: "heading",
+        attrs: { level: heading[1].length },
+        content: [{ type: "text", text: heading[2].trim() }]
+      });
+      continue;
+    }
+
+    const bullet = line.match(/^[-*+]\s+(.+)$/);
+    if (bullet) {
+      flushParagraph();
+      blocks.push({
+        type: "bulletList",
+        content: [
+          {
+            type: "listItem",
+            content: [{ type: "paragraph", content: [{ type: "text", text: bullet[1].trim() }] }]
+          }
+        ]
+      });
+      continue;
+    }
+
+    const ordered = line.match(/^\d+[.)]\s+(.+)$/);
+    if (ordered) {
+      flushParagraph();
+      blocks.push({
+        type: "orderedList",
+        attrs: { start: 1 },
+        content: [
+          {
+            type: "listItem",
+            content: [{ type: "paragraph", content: [{ type: "text", text: ordered[1].trim() }] }]
+          }
+        ]
+      });
+      continue;
+    }
+
+    pendingParagraph.push(line.trim());
+  }
+
+  flushParagraph();
+  return { type: "doc", content: blocks.length ? blocks : [{ type: "paragraph" }] };
+}
+
 function defaultBackupName() {
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
   return `suiji-backup-${stamp}.json`;
@@ -286,6 +399,12 @@ function sanitizeSettingsPayload(raw: unknown): SettingsUpdatePayload {
     hotkey: coerceString(payload.hotkey, DEFAULT_HOTKEY, 120).trim() || DEFAULT_HOTKEY,
     startHidden: Boolean(payload.startHidden),
     lockOnHide: Boolean(payload.lockOnHide),
+    launchAtLogin: Boolean(payload.launchAtLogin),
+    theme: payload.theme === "dark" ? "dark" : "light",
+    fontFamily: coerceString(payload.fontFamily, "", 120),
+    fontSize: Math.min(Math.max(Number(payload.fontSize) || 16, 13), 24),
+    lineWidth: Math.min(Math.max(Number(payload.lineWidth) || 880, 640), 1200),
+    lineHeight: Math.min(Math.max(Number(payload.lineHeight) || 1.72, 1.35), 2.2),
     privacyPin: typeof payload.privacyPin === "string" ? payload.privacyPin.slice(0, MAX_PIN_LENGTH) : undefined,
     clearPrivacyPin: Boolean(payload.clearPrivacyPin)
   };
@@ -760,7 +879,13 @@ async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<App
     ...current,
     hotkey: payload.hotkey || DEFAULT_HOTKEY,
     startHidden: Boolean(payload.startHidden),
-    lockOnHide: Boolean(payload.lockOnHide)
+    lockOnHide: Boolean(payload.lockOnHide),
+    launchAtLogin: Boolean(payload.launchAtLogin),
+    theme: payload.theme === "dark" ? "dark" : "light",
+    fontFamily: payload.fontFamily,
+    fontSize: payload.fontSize,
+    lineWidth: payload.lineWidth,
+    lineHeight: payload.lineHeight
   };
 
   if (payload.clearPrivacyPin) {
@@ -774,6 +899,10 @@ async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<App
   }
 
   await writeStoredSettings(next);
+  app.setLoginItemSettings({
+    openAtLogin: next.launchAtLogin,
+    openAsHidden: next.startHidden
+  });
   return publicSettings(next);
 }
 
@@ -967,6 +1096,112 @@ async function createNote(): Promise<NoteRecord> {
   });
   await atomicWriteFile(notePath(note.id), JSON.stringify(note, null, 2));
   return note;
+}
+
+async function createNoteFromContent(title: string, plainText: string, content: NoteRecord["content"], html = "") {
+  const now = new Date().toISOString();
+  const note = normalizeNote({
+    id: randomUUID(),
+    title: title.trim() || plainText.trim().split(/\r?\n/)[0] || "Imported note",
+    excerpt: plainText.trim().replace(/\s+/g, " ").slice(0, 120),
+    content,
+    html,
+    plainText,
+    createdAt: now,
+    updatedAt: now
+  });
+  await atomicWriteFile(notePath(note.id), JSON.stringify(note, null, 2));
+  return note;
+}
+
+async function importMarkdownNotes(): Promise<NoteRecord[]> {
+  const result = mainWindow
+    ? await dialog.showOpenDialog(mainWindow, {
+        title: "瀵煎叆 Markdown",
+        properties: ["openFile", "multiSelections"],
+        filters: [
+          { name: "Markdown", extensions: ["md", "markdown", "txt"] },
+          { name: "All Files", extensions: ["*"] }
+        ]
+      })
+    : await dialog.showOpenDialog({
+        title: "瀵煎叆 Markdown",
+        properties: ["openFile", "multiSelections"],
+        filters: [
+          { name: "Markdown", extensions: ["md", "markdown", "txt"] },
+          { name: "All Files", extensions: ["*"] }
+        ]
+      });
+
+  if (result.canceled || result.filePaths.length === 0) return [];
+  const imported: NoteRecord[] = [];
+  for (const filePath of result.filePaths) {
+    const raw = await fs.readFile(filePath, "utf8");
+    const heading = raw.match(/^\s*#\s+(.+)$/m)?.[1]?.trim();
+    const fallbackTitle = path.basename(filePath, path.extname(filePath));
+    imported.push(await createNoteFromContent(heading || fallbackTitle, raw, markdownToDoc(raw)));
+  }
+  return sortNotes(imported);
+}
+
+async function batchExportNotes(format: BatchExportFormat): Promise<{ directory: string; count: number } | null> {
+  if (!isBatchExportFormat(format)) throw new Error("Invalid export format");
+  const warningOptions: MessageBoxOptions = {
+    type: "warning",
+    buttons: ["Continue export", "Cancel"],
+    cancelId: 1,
+    defaultId: 1,
+    title: "Batch export plaintext files",
+    message: "Batch export creates plaintext files.",
+    detail: "Choose a private output directory if notes contain sensitive content."
+  };
+  const warning = mainWindow
+    ? await dialog.showMessageBox(mainWindow, warningOptions)
+    : await dialog.showMessageBox(warningOptions);
+  if (warning.response !== 0) return null;
+
+  const result = mainWindow
+    ? await dialog.showOpenDialog(mainWindow, {
+        title: "Choose batch export directory",
+        properties: ["openDirectory", "createDirectory"]
+      })
+    : await dialog.showOpenDialog({
+        title: "Choose batch export directory",
+        properties: ["openDirectory", "createDirectory"]
+      });
+  if (result.canceled || result.filePaths.length === 0) return null;
+
+  const directory = result.filePaths[0];
+  const notes = (await listNotes()).filter((note) => !note.trashedAt);
+  for (const note of notes) {
+    const filePath = await uniqueExportPath(directory, safeExportName(note.title, format));
+    const content =
+      format === "html"
+        ? buildHtmlExport(note)
+        : format === "json"
+          ? JSON.stringify(note, null, 2)
+          : format === "md"
+            ? toMarkdown(note.content)
+            : note.plainText;
+    await atomicWriteFile(filePath, content);
+  }
+
+  return { directory, count: notes.length };
+}
+async function createClipboardNote() {
+  const image = clipboard.readImage();
+  if (!image.isEmpty()) {
+    const dataUrl = image.toDataURL();
+    const content: NoteRecord["content"] = {
+      type: "doc",
+      content: [{ type: "image", attrs: { src: dataUrl, alt: "", title: null } }]
+    };
+    return createNoteFromContent("Clipboard image", "[image]", content, `<p><img src="${dataUrl}" alt=""></p>`);
+  }
+
+  const text = clipboard.readText().trim();
+  if (!text) return createNote();
+  return createNoteFromContent(text.split(/\r?\n/)[0].slice(0, 80), text, plainDoc(text));
 }
 
 async function deleteNote(id: string) {
@@ -1308,6 +1543,21 @@ function createTray(settings: AppSettings) {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "显示随记", click: showWindow },
+      {
+        label: "快速新建",
+        click: () => {
+          showWindow();
+          mainWindow?.webContents.send("menu:new-note");
+        }
+      },
+      {
+        label: "保存剪贴板为记录",
+        click: async () => {
+          const note = await createClipboardNote();
+          showWindow();
+          mainWindow?.webContents.send("notes:reload", note.id);
+        }
+      },
       { type: "separator" },
       {
         label: "退出",
@@ -1337,6 +1587,8 @@ function registerIpc() {
   );
   ipcMain.handle("notes:backup-all", exportAllNotesBackup);
   ipcMain.handle("notes:restore-backup", restoreNotesBackup);
+  ipcMain.handle("notes:import-markdown", importMarkdownNotes);
+  ipcMain.handle("notes:batch-export", (_event, format: BatchExportFormat) => batchExportNotes(format));
   ipcMain.handle("notes:export", async (_event, rawPayload: ExportPayload) => {
     const payload = sanitizeExportPayload(rawPayload);
     const ext = payload.format;
@@ -1388,6 +1640,21 @@ function registerIpc() {
     tray?.setToolTip(`随记 - ${next.hotkey} 呼出`);
     return next;
   });
+  ipcMain.handle("settings:test-hotkey", async (_event, hotkey: string) => {
+    const settings = await readSettings();
+    const candidate = coerceString(hotkey, "", 120).trim();
+    if (!candidate) return false;
+    globalShortcut.unregisterAll();
+    let ok = false;
+    try {
+      ok = globalShortcut.register(candidate, () => undefined);
+      if (ok) globalShortcut.unregister(candidate);
+    } catch {
+      ok = false;
+    }
+    registerHotkey(settings.hotkey);
+    return ok;
+  });
   ipcMain.handle("privacy:verify-pin", async (_event, pin: string) =>
     verifyPin(await readStoredSettings(), coerceString(pin, "", MAX_PIN_LENGTH))
   );
@@ -1418,6 +1685,10 @@ if (gotTheLock) {
     app.setAppUserModelId("com.suiji.desktop");
     await ensureStorage();
     const settings = await readSettings();
+    app.setLoginItemSettings({
+      openAtLogin: settings.launchAtLogin,
+      openAsHidden: settings.startHidden
+    });
     registerIpc();
     createApplicationMenu();
     createWindow();
@@ -1440,3 +1711,4 @@ if (gotTheLock) {
     globalShortcut.unregisterAll();
   });
 }
+

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
@@ -49,15 +49,31 @@ import {
   Undo2,
   Upload
 } from "lucide-react";
-import type { AppSettings, BackupEntry, NoteRecord } from "../shared/types";
+import type { AppSettings, BackupEntry, BatchExportFormat, NoteRecord } from "../shared/types";
 
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 type ExportFormat = "html" | "json" | "txt" | "md";
 type ViewMode = "active" | "favorites" | "archive" | "trash" | "recent";
+type ActiveEditor = NonNullable<ReturnType<typeof useEditor>>;
 
 type FindMatch = {
   from: number;
   to: number;
+};
+
+type OutlineItem = {
+  level: number;
+  text: string;
+  pos: number;
+};
+
+type SearchSyntax = {
+  text: string;
+  tags: string[];
+  folder: string;
+  fav: boolean;
+  archive: boolean;
+  trash: boolean;
 };
 
 const dateTimeFormatter = new Intl.DateTimeFormat("zh-CN", {
@@ -73,6 +89,90 @@ function formatTime(value: string) {
 
 function cnHotkey(value: string) {
   return value.replace("CommandOrControl", "Ctrl").replace(/\+/g, " + ");
+}
+
+function parseSearchSyntax(value: string): SearchSyntax {
+  const tokens = value.match(/"[^"]+"|\S+/g) ?? [];
+  const syntax: SearchSyntax = { text: "", tags: [], folder: "", fav: false, archive: false, trash: false };
+  const text: string[] = [];
+
+  for (const rawToken of tokens) {
+    const token = rawToken.replace(/^"|"$/g, "");
+    const lower = token.toLowerCase();
+    if (lower.startsWith("tag:")) {
+      const tag = token.slice(4).trim().toLowerCase();
+      if (tag) syntax.tags.push(tag);
+      continue;
+    }
+    if (lower.startsWith("folder:")) {
+      syntax.folder = token.slice(7).trim().toLowerCase();
+      continue;
+    }
+    if (lower === "fav" || lower === "favorite" || lower === "收藏") {
+      syntax.fav = true;
+      continue;
+    }
+    if (lower === "archive" || lower === "归档") {
+      syntax.archive = true;
+      continue;
+    }
+    if (lower === "trash" || lower === "回收站") {
+      syntax.trash = true;
+      continue;
+    }
+    text.push(token);
+  }
+
+  syntax.text = text.join(" ").trim().toLowerCase();
+  return syntax;
+}
+
+function HighlightedText({ text, keyword }: { text: string; keyword: string }) {
+  if (!keyword) return <>{text}</>;
+  const lower = text.toLowerCase();
+  const parts: React.ReactNode[] = [];
+  let index = 0;
+  let match = lower.indexOf(keyword);
+  while (match >= 0) {
+    if (match > index) parts.push(text.slice(index, match));
+    parts.push(
+      <mark key={`${match}-${keyword}`} className="search-hit">
+        {text.slice(match, match + keyword.length)}
+      </mark>
+    );
+    index = match + keyword.length;
+    match = lower.indexOf(keyword, index);
+  }
+  if (index < text.length) parts.push(text.slice(index));
+  return <>{parts}</>;
+}
+
+function extractOutline(editor: ActiveEditor | null): OutlineItem[] {
+  if (!editor) return [];
+  const items: OutlineItem[] = [];
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name !== "heading") return;
+    const text = node.textContent.trim();
+    if (!text) return;
+    items.push({ level: Number(node.attrs.level) || 1, text, pos });
+  });
+  return items;
+}
+
+function formatHotkeyEvent(event: React.KeyboardEvent<HTMLInputElement>) {
+  const key = event.key;
+  if (["Control", "Shift", "Alt", "Meta"].includes(key)) return "";
+
+  const parts: string[] = [];
+  if (event.ctrlKey || event.metaKey) parts.push("CommandOrControl");
+  if (event.altKey) parts.push("Alt");
+  if (event.shiftKey) parts.push("Shift");
+
+  const normalizedKey =
+    key.length === 1 ? key.toUpperCase() : key === " " ? "Space" : key.replace("Arrow", "");
+  if (!parts.length || !normalizedKey) return "";
+  parts.push(normalizedKey);
+  return Array.from(new Set(parts)).join("+");
 }
 
 function sortNotes(notes: NoteRecord[]) {
@@ -98,6 +198,20 @@ function parseTagsInput(value: string) {
 
 function normalizeFolderInput(value: string) {
   return value.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").trim().slice(0, 40);
+}
+
+function settingsPayload(settings: AppSettings, hotkey: string) {
+  return {
+    hotkey: hotkey.trim() || "CommandOrControl+Alt+J",
+    startHidden: settings.startHidden,
+    lockOnHide: settings.lockOnHide,
+    launchAtLogin: settings.launchAtLogin,
+    theme: settings.theme,
+    fontFamily: settings.fontFamily,
+    fontSize: settings.fontSize,
+    lineWidth: settings.lineWidth,
+    lineHeight: settings.lineHeight
+  };
 }
 
 function ToolbarButton({
@@ -141,6 +255,7 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [hotkeyDraft, setHotkeyDraft] = useState("");
+  const [hotkeyStatus, setHotkeyStatus] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [privacyLocked, setPrivacyLocked] = useState(false);
@@ -158,6 +273,8 @@ export default function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyEntries, setHistoryEntries] = useState<BackupEntry[]>([]);
   const [historyStatus, setHistoryStatus] = useState("");
+  const [outlineItems, setOutlineItems] = useState<OutlineItem[]>([]);
+  const [editorText, setEditorText] = useState("");
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const activeIdRef = useRef("");
   const revisionRef = useRef(0);
@@ -212,7 +329,11 @@ export default function App() {
         return true;
       }
     },
-    onUpdate: markDirty
+    onUpdate: ({ editor }) => {
+      markDirty();
+      setEditorText(editor.getText());
+      setOutlineItems(extractOutline(editor));
+    }
   });
 
   const loadNotes = useCallback(async () => {
@@ -246,6 +367,8 @@ export default function App() {
     setTagsDraft(activeNote.tags.join(", "));
     setFolderDraft(activeNote.folder);
     editor.commands.setContent(activeNote.content, false);
+    setEditorText(editor.getText());
+    setOutlineItems(extractOutline(editor));
     window.setTimeout(() => editor.commands.focus("end"), 0);
     revisionRef.current = 0;
     setSaveState("saved");
@@ -267,6 +390,17 @@ export default function App() {
     });
     return dispose;
   });
+
+  useEffect(() => {
+    const dispose = window.suiji.onNotesReload((id) => {
+      void (async () => {
+        const loaded = await window.suiji.listNotes();
+        setNotes(loaded);
+        if (id) setActiveId(id);
+      })();
+    });
+    return dispose;
+  }, []);
 
   useEffect(() => {
     const dispose = window.suiji.onPrivacyLock(() => {
@@ -310,6 +444,19 @@ export default function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  useEffect(() => {
+    function onPaste(event: ClipboardEvent) {
+      if (!editor?.isFocused) return;
+      const file = Array.from(event.clipboardData?.files ?? []).find((item) => item.type.startsWith("image/"));
+      if (!file) return;
+      event.preventDefault();
+      void handleInsertImage(file);
+    }
+
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [editor]);
 
   const saveActive = useCallback(async (options?: { skipClean?: boolean }) => {
     if (!editor || !activeNote) return;
@@ -364,18 +511,42 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [saveActive, saveState]);
 
+  const searchSyntax = useMemo(() => parseSearchSyntax(query), [query]);
+  const searchKeyword = searchSyntax.text;
+  const editorStats = useMemo(() => {
+    const compact = editorText.replace(/\s+/g, "");
+    const chars = Array.from(compact).length;
+    return {
+      chars,
+      readingMinutes: chars ? Math.max(1, Math.ceil(chars / 500)) : 0
+    };
+  }, [editorText]);
+
   const filteredNotes = useMemo(() => {
-    const keyword = query.trim().toLowerCase();
+    const keyword = searchSyntax.text;
     const source =
       viewMode === "recent"
         ? [...notes].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
         : sortNotes(notes);
     return source.filter((note) => {
-      if (viewMode === "trash" && !note.trashedAt) return false;
-      if (viewMode !== "trash" && note.trashedAt) return false;
-      if (viewMode === "active" && note.archivedAt) return false;
+      if (searchSyntax.trash) {
+        if (!note.trashedAt) return false;
+      } else {
+        if (viewMode === "trash" && !note.trashedAt) return false;
+        if (viewMode !== "trash" && note.trashedAt) return false;
+      }
+      if (viewMode === "active" && note.archivedAt && !searchSyntax.archive) return false;
       if (viewMode === "favorites" && !note.favoriteAt) return false;
       if (viewMode === "archive" && !note.archivedAt) return false;
+      if (searchSyntax.fav && !note.favoriteAt) return false;
+      if (searchSyntax.archive && !note.archivedAt) return false;
+      if (searchSyntax.folder && !note.folder.toLowerCase().includes(searchSyntax.folder)) return false;
+      if (
+        searchSyntax.tags.length > 0 &&
+        !searchSyntax.tags.every((tag) => note.tags.some((item) => item.toLowerCase().includes(tag)))
+      ) {
+        return false;
+      }
       const matchesTag = !selectedTag || note.tags.includes(selectedTag);
       const matchesFolder = !selectedFolder || note.folder === selectedFolder;
       const matchesKeyword =
@@ -387,7 +558,7 @@ export default function App() {
         note.folder.toLowerCase().includes(keyword);
       return matchesTag && matchesFolder && matchesKeyword;
     });
-  }, [notes, query, selectedFolder, selectedTag, viewMode]);
+  }, [notes, searchSyntax, selectedFolder, selectedTag, viewMode]);
 
   const allTags = useMemo(() => {
     return Array.from(new Set(notes.filter((note) => !note.trashedAt).flatMap((note) => note.tags))).sort((a, b) =>
@@ -606,16 +777,80 @@ export default function App() {
     });
   }
 
+  async function handleBatchExport(format: BatchExportFormat) {
+    setExportOpen(false);
+    setDataActionStatus("正在批量导出...");
+    await saveActive({ skipClean: true });
+    const result = await window.suiji.batchExportNotes(format);
+    setDataActionStatus(result ? `已导出 ${result.count} 条：${result.directory}` : "已取消批量导出");
+  }
+
+  async function handleImportMarkdown() {
+    setDataActionStatus("正在导入 Markdown...");
+    await saveActive({ skipClean: true });
+    const imported = await window.suiji.importMarkdownNotes();
+    if (imported.length === 0) {
+      setDataActionStatus("已取消 Markdown 导入");
+      return;
+    }
+    const loaded = await window.suiji.listNotes();
+    setNotes(loaded);
+    setActiveId(imported[0].id);
+    setViewMode("active");
+    setDataActionStatus(`已导入 ${imported.length} 个 Markdown 文件`);
+  }
+
+  async function handleHotkeyRecord(event: React.KeyboardEvent<HTMLInputElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    const next = formatHotkeyEvent(event);
+    if (!next) {
+      setHotkeyStatus("继续按下带 Ctrl/Alt/Shift 的完整组合键");
+      return;
+    }
+    setHotkeyDraft(next);
+    setHotkeyStatus("正在检测冲突...");
+    const available = await window.suiji.testHotkey(next);
+    setHotkeyStatus(available ? "快捷键可用" : "快捷键可能已被占用，建议更换");
+  }
+
+  async function updateTextSettings(patch: Partial<Pick<AppSettings, "fontFamily" | "fontSize" | "lineWidth" | "lineHeight">>) {
+    if (!settings) return;
+    const draft = { ...settings, ...patch };
+    setSettings(draft);
+    const next = await window.suiji.updateSettings(settingsPayload(draft, hotkeyDraft));
+    setSettings(next);
+    setHotkeyDraft(next.hotkey);
+  }
+
+  function jumpToOutline(item: OutlineItem) {
+    if (!editor) return;
+    editor.chain().focus().setTextSelection(item.pos + 1).run();
+  }
+
   async function handleSettingsSave() {
     const next = await window.suiji.updateSettings({
-      hotkey: hotkeyDraft.trim() || "CommandOrControl+Alt+J",
-      startHidden: settings?.startHidden ?? false,
-      lockOnHide: settings?.lockOnHide ?? true,
+      ...settingsPayload(
+        settings ?? {
+          hotkey: "CommandOrControl+Alt+J",
+          startHidden: false,
+          lockOnHide: true,
+          hasPrivacyPin: false,
+          launchAtLogin: false,
+          theme: "light",
+          fontFamily: "",
+          fontSize: 16,
+          lineWidth: 880,
+          lineHeight: 1.72
+        },
+        hotkeyDraft
+      ),
       privacyPin: privacyPinDraft.trim() || undefined,
       clearPrivacyPin
     });
     setSettings(next);
     setHotkeyDraft(next.hotkey);
+    setHotkeyStatus("");
     setPrivacyPinDraft("");
     setClearPrivacyPin(false);
     setSettingsOpen(false);
@@ -651,6 +886,8 @@ export default function App() {
       setTagsDraft(nextActive.tags.join(", "));
       setFolderDraft(nextActive.folder);
       editor.commands.setContent(nextActive.content, false);
+      setEditorText(editor.getText());
+      setOutlineItems(extractOutline(editor));
       revisionRef.current = 0;
       setSaveState("saved");
     }
@@ -705,6 +942,10 @@ export default function App() {
     setTagsDraft(restored.tags.join(", "));
     setFolderDraft(restored.folder);
     editor?.commands.setContent(restored.content, false);
+    if (editor) {
+      setEditorText(editor.getText());
+      setOutlineItems(extractOutline(editor));
+    }
     revisionRef.current = 0;
     setSaveState("saved");
     setHistoryOpen(false);
@@ -768,8 +1009,22 @@ export default function App() {
           ? "保存失败"
           : "已保存";
 
+  const appClassName = [
+    "app-shell",
+    sidebarCollapsed ? "sidebar-collapsed" : "",
+    settings?.theme === "dark" ? "theme-dark" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const appStyle = {
+    "--editor-width": `${settings?.lineWidth ?? 880}px`,
+    "--editor-font-family": settings?.fontFamily?.trim() || undefined,
+    "--editor-font-size": `${settings?.fontSize ?? 16}px`,
+    "--editor-line-height": settings?.lineHeight ?? 1.72
+  } as React.CSSProperties;
+
   return (
-    <main className={sidebarCollapsed ? "app-shell sidebar-collapsed" : "app-shell"}>
+    <main className={appClassName} style={appStyle}>
       <aside className="sidebar">
         {sidebarCollapsed ? (
           <div className="sidebar-rail">
@@ -903,7 +1158,9 @@ export default function App() {
                 onClick={() => void handleSelectNote(note.id)}
               >
                 <span>{formatTime(note.updatedAt)}</span>
-                <strong>{note.title}</strong>
+                <strong>
+                  <HighlightedText text={note.title} keyword={searchKeyword} />
+                </strong>
               </button>
             ))}
           </div>
@@ -931,7 +1188,7 @@ export default function App() {
               <div className="note-item-header">
                 <span className="note-title">
                   {note.pinnedAt ? <Pin size={13} className="note-pin-mark" /> : null}
-                  {note.title}
+                  <HighlightedText text={note.title} keyword={searchKeyword} />
                 </span>
                 <div className="note-actions">
                   <button
@@ -1014,11 +1271,15 @@ export default function App() {
               {note.tags.length > 0 ? (
                 <div className="note-tags">
                   {note.tags.slice(0, 3).map((tag) => (
-                    <span key={tag}>{tag}</span>
+                    <span key={tag}>
+                      <HighlightedText text={tag} keyword={searchKeyword} />
+                    </span>
                   ))}
                 </div>
               ) : null}
-              <span className="note-excerpt">{note.excerpt || "空记录"}</span>
+              <span className="note-excerpt">
+                <HighlightedText text={note.excerpt || "空记录"} keyword={searchKeyword} />
+              </span>
               <span className="note-time">{formatTime(note.updatedAt)}</span>
             </div>
           ))}
@@ -1060,6 +1321,9 @@ export default function App() {
           </div>
           <div className="topbar-actions">
             <span className={`save-status ${saveState}`}>{statusText}</span>
+            <span className="doc-stats">
+              {editorStats.chars} 字 · 阅读 {editorStats.readingMinutes} 分钟
+            </span>
             {activeNote && !activeNote.trashedAt ? (
               <>
                 <button
@@ -1206,6 +1470,60 @@ export default function App() {
               }}
             />
           </div>
+          <div className="toolbar-format" aria-label="阅读版式">
+            <label title="默认字体">
+              <span>字体</span>
+              <select
+                value={settings?.fontFamily ?? ""}
+                onChange={(event) => void updateTextSettings({ fontFamily: event.target.value })}
+              >
+                <option value="">系统</option>
+                <option value={'"Microsoft YaHei", "PingFang SC", sans-serif'}>雅黑</option>
+                <option value={'"SimSun", "Songti SC", serif'}>宋体</option>
+                <option value={'"KaiTi", "Kaiti SC", serif'}>楷体</option>
+                <option value={'"Consolas", "Cascadia Code", monospace'}>等宽</option>
+              </select>
+            </label>
+            <label title="默认字号">
+              <span>字号</span>
+              <select
+                value={settings?.fontSize ?? 16}
+                onChange={(event) => void updateTextSettings({ fontSize: Number(event.target.value) })}
+              >
+                {[14, 15, 16, 17, 18, 20, 22, 24].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label title="编辑行宽">
+              <span>行宽</span>
+              <select
+                value={settings?.lineWidth ?? 880}
+                onChange={(event) => void updateTextSettings({ lineWidth: Number(event.target.value) })}
+              >
+                {[680, 760, 880, 1000, 1120].map((width) => (
+                  <option key={width} value={width}>
+                    {width}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label title="默认行高">
+              <span>行高</span>
+              <select
+                value={settings?.lineHeight ?? 1.72}
+                onChange={(event) => void updateTextSettings({ lineHeight: Number(event.target.value) })}
+              >
+                {[1.45, 1.6, 1.72, 1.85, 2].map((height) => (
+                  <option key={height} value={height}>
+                    {height}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div
             className="export-menu-wrap"
             onBlur={(event) => {
@@ -1238,6 +1556,23 @@ export default function App() {
                     role="menuitem"
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => void handleExport(format as ExportFormat)}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <div className="export-menu-divider" />
+                {[
+                  ["md", "批量 MD"],
+                  ["html", "批量 HTML"],
+                  ["txt", "批量 TXT"],
+                  ["json", "批量 JSON"]
+                ].map(([format, label]) => (
+                  <button
+                    key={`batch-${format}`}
+                    type="button"
+                    role="menuitem"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => void handleBatchExport(format as BatchExportFormat)}
                   >
                     {label}
                   </button>
@@ -1327,6 +1662,21 @@ export default function App() {
         >
           {editor ? <EditorContent editor={editor} /> : null}
         </div>
+        {outlineItems.length > 0 ? (
+          <aside className="outline-panel" aria-label="大纲目录">
+            <strong>大纲</strong>
+            {outlineItems.map((item, index) => (
+              <button
+                key={`${item.pos}-${index}`}
+                type="button"
+                className={`outline-level-${item.level}`}
+                onClick={() => jumpToOutline(item)}
+              >
+                {item.text}
+              </button>
+            ))}
+          </aside>
+        ) : null}
       </section>
 
       {settingsOpen ? (
@@ -1335,7 +1685,13 @@ export default function App() {
             <h2>设置</h2>
             <label>
               <span>全局快捷键</span>
-              <input value={hotkeyDraft} onChange={(event) => setHotkeyDraft(event.target.value)} />
+              <input
+                value={hotkeyDraft}
+                readOnly
+                onKeyDown={(event) => void handleHotkeyRecord(event)}
+                onFocus={() => setHotkeyStatus("按下新的快捷键组合")}
+              />
+              {hotkeyStatus ? <small className="setting-hint">{hotkeyStatus}</small> : null}
             </label>
             <label className="checkbox-row">
               <input
@@ -1352,6 +1708,18 @@ export default function App() {
             <label className="checkbox-row">
               <input
                 type="checkbox"
+                checked={settings?.launchAtLogin ?? false}
+                onChange={(event) =>
+                  setSettings((current) =>
+                    current ? { ...current, launchAtLogin: event.target.checked } : current
+                  )
+                }
+              />
+              <span>开机自动启动</span>
+            </label>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
                 checked={settings?.lockOnHide ?? true}
                 onChange={(event) =>
                   setSettings((current) =>
@@ -1360,6 +1728,18 @@ export default function App() {
                 }
               />
               <span>隐藏后重新打开时保护内容</span>
+            </label>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={settings?.theme === "dark"}
+                onChange={(event) =>
+                  setSettings((current) =>
+                    current ? { ...current, theme: event.target.checked ? "dark" : "light" } : current
+                  )
+                }
+              />
+              <span>深色模式</span>
             </label>
             <label>
               <span>{settings?.hasPrivacyPin ? "更换隐私密码" : "设置隐私密码"}</span>
@@ -1396,6 +1776,10 @@ export default function App() {
                 <button type="button" onClick={() => void handleRestoreNotesBackup()}>
                   <Upload size={16} />
                   恢复备份
+                </button>
+                <button type="button" onClick={() => void handleImportMarkdown()}>
+                  <Upload size={16} />
+                  导入 MD
                 </button>
                 <button type="button" onClick={() => void handleOpenDataFolder()}>
                   <FolderOpen size={16} />
@@ -1478,3 +1862,4 @@ export default function App() {
     </main>
   );
 }
+

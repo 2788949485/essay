@@ -1,5 +1,13 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AppSettings, BackupEntry, ExportPayload, NoteRecord, RestoreResult, SettingsUpdatePayload } from "../shared/types.js";
+import type {
+  AppSettings,
+  BackupEntry,
+  BatchExportFormat,
+  ExportPayload,
+  NoteRecord,
+  RestoreResult,
+  SettingsUpdatePayload
+} from "../shared/types.js";
 
 const api = {
   listNotes: () => ipcRenderer.invoke("notes:list") as Promise<NoteRecord[]>,
@@ -16,10 +24,14 @@ const api = {
     ipcRenderer.invoke("notes:restore-backup-version", id, fileName) as Promise<NoteRecord>,
   backupAllNotes: () => ipcRenderer.invoke("notes:backup-all") as Promise<string | null>,
   restoreNotesBackup: () => ipcRenderer.invoke("notes:restore-backup") as Promise<RestoreResult | null>,
+  importMarkdownNotes: () => ipcRenderer.invoke("notes:import-markdown") as Promise<NoteRecord[]>,
+  batchExportNotes: (format: BatchExportFormat) =>
+    ipcRenderer.invoke("notes:batch-export", format) as Promise<{ directory: string; count: number } | null>,
   exportNote: (payload: ExportPayload) => ipcRenderer.invoke("notes:export", payload) as Promise<string | null>,
   getSettings: () => ipcRenderer.invoke("settings:get") as Promise<AppSettings>,
   updateSettings: (settings: SettingsUpdatePayload) =>
     ipcRenderer.invoke("settings:update", settings) as Promise<AppSettings>,
+  testHotkey: (hotkey: string) => ipcRenderer.invoke("settings:test-hotkey", hotkey) as Promise<boolean>,
   verifyPrivacyPin: (pin: string) => ipcRenderer.invoke("privacy:verify-pin", pin) as Promise<boolean>,
   openExternalLink: (url: string) => ipcRenderer.invoke("shell:open-external", url) as Promise<boolean>,
   openDataFolder: () => ipcRenderer.invoke("app:open-data-folder") as Promise<string | null>,
@@ -51,6 +63,13 @@ const api = {
     ipcRenderer.on("privacy:lock", listener);
     return () => {
       ipcRenderer.removeListener("privacy:lock", listener);
+    };
+  },
+  onNotesReload: (callback: (id?: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, id?: string) => callback(id);
+    ipcRenderer.on("notes:reload", listener);
+    return () => {
+      ipcRenderer.removeListener("notes:reload", listener);
     };
   }
 };

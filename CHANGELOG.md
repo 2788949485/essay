@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.6.3 - 2026-05-28
+
+- Removed font, font-size, line-width, and line-height controls from the settings dialog.
+- Kept typography controls in the toolbar and preserved a compact dark-mode switch in settings.
+
+## 0.6.2 - 2026-05-28
+
+- Made the editor toolbar responsive so controls reflow instead of being covered in smaller windows.
+- Kept formatting controls and export actions visible while the rich-text tool group scrolls inside its own area.
+
+## 0.6.1 - 2026-05-28
+
+- Optimized compact-window layout so sidebar note cards, timestamps, and toolbar controls are not clipped.
+- Moved editor typography controls into the toolbar, including default font, font size, line width, and line height.
+- Added persistent editor font size and line-height settings.
+
+## 0.6.0 - 2026-05-28
+
+- Added Markdown import and batch export for Markdown, HTML, TXT, and JSON.
+- Added hotkey recording with conflict checks, plus startup-at-login support.
+- Added full-text search highlighting and syntax filters for `tag:`, `folder:`, `fav`, `archive`, and `trash`.
+- Added word count, reading time, outline navigation, and heading jump support.
+- Added theme, font, line-width, and dark-mode settings.
+- Added tray quick-create, clipboard quick-save, and image/screenshot paste support.
+
 ## 0.5.1 - 2026-05-28
 
 - Improved sidebar view-switch layout from cramped five-column buttons to wider two-column controls.

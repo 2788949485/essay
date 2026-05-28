@@ -25,15 +25,29 @@ export type AppSettings = {
   startHidden: boolean;
   lockOnHide: boolean;
   hasPrivacyPin: boolean;
+  launchAtLogin: boolean;
+  theme: "light" | "dark";
+  fontFamily: string;
+  fontSize: number;
+  lineWidth: number;
+  lineHeight: number;
 };
 
 export type SettingsUpdatePayload = {
   hotkey: string;
   startHidden: boolean;
   lockOnHide: boolean;
+  launchAtLogin: boolean;
+  theme: "light" | "dark";
+  fontFamily: string;
+  fontSize: number;
+  lineWidth: number;
+  lineHeight: number;
   privacyPin?: string;
   clearPrivacyPin?: boolean;
 };
+
+export type BatchExportFormat = "html" | "json" | "txt" | "md";
 
 export type ExportPayload = {
   note: NoteRecord;
