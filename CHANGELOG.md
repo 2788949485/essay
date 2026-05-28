@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.4 - 2026-05-28
+
+- Reworked the editor toolbar so typography controls live inside one cohesive "layout" menu.
+- Reduced toolbar clutter while keeping font, font size, line width, and line height adjustments live.
+
 ## 0.6.3 - 2026-05-28
 
 - Removed font, font-size, line-width, and line-height controls from the settings dialog.

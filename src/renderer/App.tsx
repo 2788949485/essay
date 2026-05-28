@@ -13,6 +13,7 @@ import {
   Archive,
   ArchiveRestore,
   Bold,
+  ChevronDown,
   CheckSquare,
   Clock,
   Code2,
@@ -45,6 +46,7 @@ import {
   StarOff,
   Strikethrough,
   Trash2,
+  Type,
   Underline as UnderlineIcon,
   Undo2,
   Upload
@@ -258,6 +260,7 @@ export default function App() {
   const [hotkeyStatus, setHotkeyStatus] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [formatOpen, setFormatOpen] = useState(false);
   const [privacyLocked, setPrivacyLocked] = useState(false);
   const [privacyPinDraft, setPrivacyPinDraft] = useState("");
   const [clearPrivacyPin, setClearPrivacyPin] = useState(false);
@@ -1470,59 +1473,75 @@ export default function App() {
               }}
             />
           </div>
-          <div className="toolbar-format" aria-label="阅读版式">
-            <label title="默认字体">
-              <span>字体</span>
-              <select
-                value={settings?.fontFamily ?? ""}
-                onChange={(event) => void updateTextSettings({ fontFamily: event.target.value })}
-              >
-                <option value="">系统</option>
-                <option value={'"Microsoft YaHei", "PingFang SC", sans-serif'}>雅黑</option>
-                <option value={'"SimSun", "Songti SC", serif'}>宋体</option>
-                <option value={'"KaiTi", "Kaiti SC", serif'}>楷体</option>
-                <option value={'"Consolas", "Cascadia Code", monospace'}>等宽</option>
-              </select>
-            </label>
-            <label title="默认字号">
-              <span>字号</span>
-              <select
-                value={settings?.fontSize ?? 16}
-                onChange={(event) => void updateTextSettings({ fontSize: Number(event.target.value) })}
-              >
-                {[14, 15, 16, 17, 18, 20, 22, 24].map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label title="编辑行宽">
-              <span>行宽</span>
-              <select
-                value={settings?.lineWidth ?? 880}
-                onChange={(event) => void updateTextSettings({ lineWidth: Number(event.target.value) })}
-              >
-                {[680, 760, 880, 1000, 1120].map((width) => (
-                  <option key={width} value={width}>
-                    {width}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label title="默认行高">
-              <span>行高</span>
-              <select
-                value={settings?.lineHeight ?? 1.72}
-                onChange={(event) => void updateTextSettings({ lineHeight: Number(event.target.value) })}
-              >
-                {[1.45, 1.6, 1.72, 1.85, 2].map((height) => (
-                  <option key={height} value={height}>
-                    {height}
-                  </option>
-                ))}
-              </select>
-            </label>
+          <div
+            className="format-menu-wrap"
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                setFormatOpen(false);
+              }
+            }}
+          >
+            <button
+              className={formatOpen ? "format-button is-open" : "format-button"}
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={formatOpen}
+              onClick={() => setFormatOpen((current) => !current)}
+            >
+              <Type size={16} />
+              <span>版式</span>
+              <ChevronDown size={14} />
+            </button>
+            {formatOpen ? (
+              <div className="format-menu" role="menu">
+                <label>
+                  <span>默认字体</span>
+                  <select
+                    value={settings?.fontFamily ?? ""}
+                    onChange={(event) => void updateTextSettings({ fontFamily: event.target.value })}
+                  >
+                    <option value="">系统字体</option>
+                    <option value={'"Microsoft YaHei", "PingFang SC", sans-serif'}>微软雅黑</option>
+                    <option value={'"SimSun", "Songti SC", serif'}>宋体</option>
+                    <option value={'"KaiTi", "Kaiti SC", serif'}>楷体</option>
+                    <option value={'"Consolas", "Cascadia Code", monospace'}>等宽</option>
+                  </select>
+                </label>
+                <label>
+                  <span>字号 {settings?.fontSize ?? 16}px</span>
+                  <input
+                    type="range"
+                    min={13}
+                    max={24}
+                    step={1}
+                    value={settings?.fontSize ?? 16}
+                    onChange={(event) => void updateTextSettings({ fontSize: Number(event.target.value) })}
+                  />
+                </label>
+                <label>
+                  <span>行宽 {settings?.lineWidth ?? 880}px</span>
+                  <input
+                    type="range"
+                    min={640}
+                    max={1200}
+                    step={20}
+                    value={settings?.lineWidth ?? 880}
+                    onChange={(event) => void updateTextSettings({ lineWidth: Number(event.target.value) })}
+                  />
+                </label>
+                <label>
+                  <span>行高 {settings?.lineHeight ?? 1.72}</span>
+                  <input
+                    type="range"
+                    min={1.35}
+                    max={2.2}
+                    step={0.05}
+                    value={settings?.lineHeight ?? 1.72}
+                    onChange={(event) => void updateTextSettings({ lineHeight: Number(event.target.value) })}
+                  />
+                </label>
+              </div>
+            ) : null}
           </div>
           <div
             className="export-menu-wrap"

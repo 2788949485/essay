@@ -549,45 +549,6 @@ button:disabled {
   scroll-behavior: smooth;
 }
 
-.toolbar-format {
-  display: flex;
-  min-width: 0;
-  max-width: 100%;
-  align-items: center;
-  gap: 6px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-
-.toolbar-format::-webkit-scrollbar {
-  display: none;
-}
-
-.toolbar-format label {
-  display: inline-flex;
-  height: 30px;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 4px;
-  border: 1px solid #d6cdbd;
-  border-radius: 8px;
-  background: #fffaf0;
-  color: #706b60;
-  padding: 0 5px 0 8px;
-  font-size: 11px;
-}
-
-.toolbar-format select {
-  height: 24px;
-  max-width: 92px;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: #303632;
-  font-size: 12px;
-}
-
 .toolbar-tools::-webkit-scrollbar {
   display: none;
 }
@@ -599,26 +560,38 @@ button:disabled {
   background: #d3cab9;
 }
 
+.format-menu-wrap,
 .export-menu-wrap {
   position: relative;
   justify-self: end;
   margin-left: 0;
 }
 
+.format-button,
 .export-button {
   display: inline-flex;
   height: 34px;
-  min-width: 82px;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 7px;
   border: 1px solid #c8bea9;
   border-radius: 8px;
   background: #fffaf0;
   color: #303632;
   padding: 0 10px 0 12px;
+  white-space: nowrap;
 }
 
+.format-button {
+  min-width: 86px;
+}
+
+.export-button {
+  min-width: 82px;
+}
+
+.format-button:hover,
+.format-button.is-open,
 .export-button:hover,
 .export-button.is-open {
   border-color: #9fb9ad;
@@ -626,17 +599,49 @@ button:disabled {
   color: #1e594c;
 }
 
+.format-menu,
 .export-menu {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
   z-index: 20;
-  width: 136px;
   border: 1px solid #c8bea9;
   border-radius: 8px;
   background: #fffaf0;
   box-shadow: 0 10px 28px rgba(42, 37, 28, 0.16);
+}
+
+.format-menu {
+  display: grid;
+  width: 276px;
+  gap: 12px;
+  padding: 14px;
+}
+
+.export-menu {
+  width: 136px;
   padding: 5px;
+}
+
+.format-menu label {
+  display: grid;
+  gap: 7px;
+  color: #55584f;
+  font-size: 12px;
+}
+
+.format-menu select,
+.format-menu input[type="range"] {
+  width: 100%;
+}
+
+.format-menu select {
+  height: 34px;
+  border: 1px solid #d6cdbd;
+  border-radius: 8px;
+  background: #fffdf8;
+  color: #303632;
+  padding: 0 9px;
 }
 
 .export-menu-divider {
@@ -1199,9 +1204,10 @@ button:disabled {
 .theme-dark .search-box,
 .theme-dark .view-switch button,
 .theme-dark .folder-filter button,
-.theme-dark .toolbar-format label,
 .theme-dark .tag-filter button,
 .theme-dark .note-tags span,
+.theme-dark .format-button,
+.theme-dark .format-menu,
 .theme-dark .export-button,
 .theme-dark .export-menu,
 .theme-dark .find-panel,
@@ -1214,7 +1220,7 @@ button:disabled {
 }
 
 .theme-dark .search-box input,
-.theme-dark .toolbar-format select,
+.theme-dark .format-menu select,
 .theme-dark .find-panel input,
 .theme-dark .modal input,
 .theme-dark .modal select,
@@ -1236,6 +1242,8 @@ button:disabled {
 .theme-dark .icon-button.is-active,
 .theme-dark .tool-button:hover,
 .theme-dark .tool-button.is-active,
+.theme-dark .format-button:hover,
+.theme-dark .format-button.is-open,
 .theme-dark .export-button:hover,
 .theme-dark .export-button.is-open,
 .theme-dark .export-menu button:hover,
@@ -1277,8 +1285,9 @@ button:disabled {
     grid-column: 1 / -1;
   }
 
-  .toolbar-format {
+  .format-menu-wrap {
     grid-column: 1;
+    justify-self: start;
   }
 
   .export-menu-wrap {
@@ -1306,12 +1315,18 @@ button:disabled {
   }
 
   .toolbar-tools,
-  .toolbar-format,
+  .format-menu-wrap,
   .export-menu-wrap {
     grid-column: 1;
   }
 
+  .format-menu-wrap,
   .export-menu-wrap {
     justify-self: start;
+  }
+
+  .format-menu {
+    right: auto;
+    left: 0;
   }
 }
