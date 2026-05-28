@@ -16,6 +16,7 @@ import {
   Download,
   EyeOff,
   FileSearch,
+  FolderOpen,
   Heading1,
   Heading2,
   Highlighter,
@@ -39,7 +40,8 @@ import {
   Strikethrough,
   Trash2,
   Underline as UnderlineIcon,
-  Undo2
+  Undo2,
+  Upload
 } from "lucide-react";
 import type { AppSettings, NoteRecord } from "../shared/types";
 
@@ -75,6 +77,18 @@ function sortNotes(notes: NoteRecord[]) {
   });
 }
 
+function parseTagsInput(value: string) {
+  return Array.from(
+    new Set(
+      value
+        .split(/[,，\s]+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((item) => item.slice(0, 24))
+    )
+  ).slice(0, 12);
+}
+
 function ToolbarButton({
   active,
   disabled,
@@ -106,7 +120,9 @@ export default function App() {
   const [notes, setNotes] = useState<NoteRecord[]>([]);
   const [activeId, setActiveId] = useState<string>("");
   const [title, setTitle] = useState("");
+  const [tagsDraft, setTagsDraft] = useState("");
   const [query, setQuery] = useState("");
+  const [selectedTag, setSelectedTag] = useState("");
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -124,9 +140,19 @@ export default function App() {
   const [replaceValue, setReplaceValue] = useState("");
   const [findMatches, setFindMatches] = useState<FindMatch[]>([]);
   const [findIndex, setFindIndex] = useState(0);
+  const [dataActionStatus, setDataActionStatus] = useState("");
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const activeIdRef = useRef("");
+  const revisionRef = useRef(0);
+  const saveStateRef = useRef<SaveState>("idle");
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
 
   const activeNote = useMemo(() => notes.find((note) => note.id === activeId) ?? null, [activeId, notes]);
+
+  const markDirty = useCallback(() => {
+    revisionRef.current += 1;
+    setSaveState("dirty");
+  }, []);
 
   const editor = useEditor({
     extensions: [
@@ -136,7 +162,7 @@ export default function App() {
       Underline,
       Link.configure({
         autolink: true,
-        openOnClick: true
+        openOnClick: false
       }),
       Image.configure({
         inline: false,
@@ -159,9 +185,17 @@ export default function App() {
       attributes: {
         class: "editor-surface",
         spellcheck: "false"
+      },
+      handleClick: (_view, _pos, event) => {
+        const target = event.target instanceof HTMLElement ? event.target : null;
+        const link = target?.closest("a[href]") as HTMLAnchorElement | null;
+        if (!link?.href) return false;
+        event.preventDefault();
+        void window.suiji.openExternalLink(link.href);
+        return true;
       }
     },
-    onUpdate: () => setSaveState("dirty")
+    onUpdate: markDirty
   });
 
   const loadNotes = useCallback(async () => {
@@ -182,10 +216,20 @@ export default function App() {
   }, [loadNotes]);
 
   useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
+
+  useEffect(() => {
+    saveStateRef.current = saveState;
+  }, [saveState]);
+
+  useEffect(() => {
     if (!editor || !activeNote) return;
     setTitle(activeNote.title);
+    setTagsDraft(activeNote.tags.join(", "));
     editor.commands.setContent(activeNote.content, false);
     window.setTimeout(() => editor.commands.focus("end"), 0);
+    revisionRef.current = 0;
     setSaveState("saved");
   }, [activeNote?.id, editor]);
 
@@ -246,27 +290,47 @@ export default function App() {
 
   const saveActive = useCallback(async (options?: { skipClean?: boolean }) => {
     if (!editor || !activeNote) return;
-    if (options?.skipClean && saveState !== "dirty") {
+    if (options?.skipClean && saveStateRef.current !== "dirty") {
       return activeNote;
     }
-    setSaveState("saving");
-    try {
-      const plainText = editor.getText();
-      const saved = await window.suiji.saveNote({
-        ...activeNote,
-        title,
-        content: editor.getJSON(),
-        html: editor.getHTML(),
-        plainText
-      });
-      setNotes((current) => sortNotes([saved, ...current.filter((note) => note.id !== saved.id)]));
-      setSaveState("saved");
-      return saved;
-    } catch {
-      setSaveState("error");
-      return null;
-    }
-  }, [activeNote, editor, saveState, title]);
+
+    const revisionAtStart = revisionRef.current;
+    const snapshot: NoteRecord = {
+      ...activeNote,
+      title,
+      tags: parseTagsInput(tagsDraft),
+      content: editor.getJSON(),
+      html: editor.getHTML(),
+      plainText: editor.getText()
+    };
+
+    const saveTask = saveQueueRef.current.then(async () => {
+      if (activeIdRef.current === snapshot.id) {
+        setSaveState("saving");
+      }
+
+      try {
+        const saved = await window.suiji.saveNote(snapshot);
+        setNotes((current) => sortNotes([saved, ...current.filter((note) => note.id !== saved.id)]));
+        if (activeIdRef.current === saved.id) {
+          setSaveState(revisionRef.current === revisionAtStart ? "saved" : "dirty");
+        }
+        return saved;
+      } catch {
+        if (activeIdRef.current === snapshot.id) {
+          setSaveState("error");
+        }
+        return null;
+      }
+    });
+
+    saveQueueRef.current = saveTask.then(
+      () => undefined,
+      () => undefined
+    );
+
+    return saveTask;
+  }, [activeNote, editor, tagsDraft, title]);
 
   useEffect(() => {
     if (saveState !== "dirty") return;
@@ -279,15 +343,21 @@ export default function App() {
   const filteredNotes = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     const source = sortNotes(notes);
-    if (!keyword) return source;
     return source.filter((note) => {
-      return (
+      const matchesTag = !selectedTag || note.tags.includes(selectedTag);
+      const matchesKeyword =
+        !keyword ||
         note.title.toLowerCase().includes(keyword) ||
         note.excerpt.toLowerCase().includes(keyword) ||
-        note.plainText.toLowerCase().includes(keyword)
-      );
+        note.plainText.toLowerCase().includes(keyword) ||
+        note.tags.some((tag) => tag.toLowerCase().includes(keyword));
+      return matchesTag && matchesKeyword;
     });
-  }, [notes, query]);
+  }, [notes, query, selectedTag]);
+
+  const allTags = useMemo(() => {
+    return Array.from(new Set(notes.flatMap((note) => note.tags))).sort((a, b) => a.localeCompare(b, "zh-CN"));
+  }, [notes]);
 
   function focusEditorSoon() {
     window.setTimeout(() => editor?.commands.focus("end"), 0);
@@ -344,7 +414,7 @@ export default function App() {
       dispatch?.(tr);
       return true;
     }).run();
-    setSaveState("dirty");
+    markDirty();
     window.setTimeout(() => {
       const matches = findText();
       selectFindMatch(matches, Math.min(findIndex, Math.max(matches.length - 1, 0)));
@@ -362,7 +432,7 @@ export default function App() {
       dispatch?.(tr);
       return true;
     }).run();
-    setSaveState("dirty");
+    markDirty();
     setFindMatches([]);
     setFindIndex(0);
   }
@@ -377,7 +447,7 @@ export default function App() {
       reader.readAsDataURL(file);
     });
     editor.chain().focus().setImage({ src: dataUrl, alt: file.name }).run();
-    setSaveState("dirty");
+    markDirty();
   }
 
   async function handleCreate() {
@@ -430,6 +500,7 @@ export default function App() {
       note: {
         ...activeNote,
         title,
+        tags: parseTagsInput(tagsDraft),
         content: editor.getJSON(),
         html: editor.getHTML(),
         plainText: editor.getText()
@@ -451,6 +522,46 @@ export default function App() {
     setPrivacyPinDraft("");
     setClearPrivacyPin(false);
     setSettingsOpen(false);
+  }
+
+  async function handleBackupAllNotes() {
+    setDataActionStatus("正在备份...");
+    await saveActive({ skipClean: true });
+    const filePath = await window.suiji.backupAllNotes();
+    setDataActionStatus(filePath ? `备份已保存：${filePath}` : "已取消备份");
+  }
+
+  async function handleRestoreNotesBackup() {
+    setDataActionStatus("正在恢复...");
+    await saveActive({ skipClean: true });
+    const result = await window.suiji.restoreNotesBackup();
+    if (!result) {
+      setDataActionStatus("已取消恢复");
+      return;
+    }
+
+    const loadedNotes = await window.suiji.listNotes();
+    let nextNotes = loadedNotes;
+    if (nextNotes.length === 0) {
+      const created = await window.suiji.createNote();
+      nextNotes = [created];
+    }
+    const nextActive = nextNotes.find((note) => note.id === activeId) ?? nextNotes[0];
+    setNotes(nextNotes);
+    setActiveId(nextActive?.id || "");
+    if (nextActive && editor) {
+      setTitle(nextActive.title);
+      setTagsDraft(nextActive.tags.join(", "));
+      editor.commands.setContent(nextActive.content, false);
+      revisionRef.current = 0;
+      setSaveState("saved");
+    }
+    setDataActionStatus(`恢复完成：导入 ${result.imported}/${result.total} 条，跳过 ${result.skipped} 条`);
+  }
+
+  async function handleOpenDataFolder() {
+    const error = await window.suiji.openDataFolder();
+    setDataActionStatus(error ? `打开失败：${error}` : "已打开本地数据目录");
   }
 
   async function handleUnlock() {
@@ -560,6 +671,28 @@ export default function App() {
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索记录" />
         </div>
 
+        {allTags.length > 0 ? (
+          <div className="tag-filter" aria-label="标签筛选">
+            <button
+              type="button"
+              className={selectedTag ? "" : "is-active"}
+              onClick={() => setSelectedTag("")}
+            >
+              全部
+            </button>
+            {allTags.map((tag) => (
+              <button
+                key={tag}
+                type="button"
+                className={selectedTag === tag ? "is-active" : ""}
+                onClick={() => setSelectedTag(tag)}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         <button className="new-note-button" type="button" onClick={handleCreate}>
           <Plus size={18} />
           新记录
@@ -614,6 +747,13 @@ export default function App() {
                   </button>
                 </div>
               </div>
+              {note.tags.length > 0 ? (
+                <div className="note-tags">
+                  {note.tags.slice(0, 3).map((tag) => (
+                    <span key={tag}>{tag}</span>
+                  ))}
+                </div>
+              ) : null}
               <span className="note-excerpt">{note.excerpt || "空记录"}</span>
               <span className="note-time">{formatTime(note.updatedAt)}</span>
             </div>
@@ -625,15 +765,26 @@ export default function App() {
 
       <section className="workspace">
         <header className="topbar">
-          <input
-            className="title-input"
-            value={title}
-            onChange={(event) => {
-              setTitle(event.target.value);
-              setSaveState("dirty");
-            }}
-            placeholder="未命名记录"
-          />
+          <div className="title-group">
+            <input
+              className="title-input"
+              value={title}
+              onChange={(event) => {
+                setTitle(event.target.value);
+                markDirty();
+              }}
+              placeholder="未命名记录"
+            />
+            <input
+              className="tags-input"
+              value={tagsDraft}
+              onChange={(event) => {
+                setTagsDraft(event.target.value);
+                markDirty();
+              }}
+              placeholder="标签，用逗号分隔"
+            />
+          </div>
           <div className="topbar-actions">
             <span className={`save-status ${saveState}`}>{statusText}</span>
             <button className="icon-button" title="立即保存" aria-label="立即保存" onClick={() => void saveActive()}>
@@ -937,6 +1088,24 @@ export default function App() {
                 <span>移除隐私密码</span>
               </label>
             ) : null}
+            <section className="data-tools" aria-label="数据管理">
+              <h3>数据管理</h3>
+              <div className="data-tool-grid">
+                <button type="button" onClick={() => void handleBackupAllNotes()}>
+                  <Download size={16} />
+                  备份全部
+                </button>
+                <button type="button" onClick={() => void handleRestoreNotesBackup()}>
+                  <Upload size={16} />
+                  恢复备份
+                </button>
+                <button type="button" onClick={() => void handleOpenDataFolder()}>
+                  <FolderOpen size={16} />
+                  数据目录
+                </button>
+              </div>
+              {dataActionStatus ? <p>{dataActionStatus}</p> : null}
+            </section>
             <div className="modal-actions">
               <button type="button" onClick={() => setSettingsOpen(false)}>
                 取消

@@ -196,7 +196,7 @@ button:disabled {
   display: grid;
   width: 100%;
   min-height: 92px;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto auto 1fr auto;
   gap: 6px;
   border: 1px solid transparent;
   border-radius: 8px;
@@ -205,6 +205,55 @@ button:disabled {
   color: #2c302e;
   cursor: pointer;
   text-align: left;
+}
+
+.tag-filter {
+  display: flex;
+  max-height: 74px;
+  flex-wrap: wrap;
+  gap: 6px;
+  overflow-y: auto;
+}
+
+.tag-filter button,
+.note-tags span {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  border: 1px solid #d6cdbd;
+  border-radius: 999px;
+  background: #fffaf0;
+  color: #5f675f;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.tag-filter button {
+  height: 24px;
+  padding: 0 9px;
+}
+
+.tag-filter button:hover,
+.tag-filter button.is-active {
+  border-color: #9fb9ad;
+  background: #edf4ef;
+  color: #1e594c;
+}
+
+.note-tags {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.note-tags span {
+  height: 20px;
+  overflow: hidden;
+  padding: 0 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .note-item:hover,
@@ -300,7 +349,7 @@ button:disabled {
   min-height: 0;
   height: 100vh;
   overflow: hidden;
-  grid-template-rows: 68px 50px minmax(0, 1fr);
+  grid-template-rows: 78px 50px minmax(0, 1fr);
   background: #f8f5ed;
 }
 
@@ -313,6 +362,13 @@ button:disabled {
   padding: 0 24px;
 }
 
+.title-group {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 5px;
+}
+
 .title-input {
   width: 100%;
   min-width: 0;
@@ -322,6 +378,16 @@ button:disabled {
   color: #202422;
   font-size: 22px;
   font-weight: 760;
+}
+
+.tags-input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #706b60;
+  font-size: 12px;
 }
 
 .topbar-actions {
@@ -656,6 +722,55 @@ button:disabled {
   grid-template-columns: none;
   align-items: center;
   margin-top: 14px;
+}
+
+.data-tools {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  border-top: 1px solid #d8d2c4;
+  padding-top: 16px;
+}
+
+.data-tools h3 {
+  margin: 0;
+  color: #303632;
+  font-size: 14px;
+}
+
+.data-tool-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.data-tool-grid button {
+  display: inline-flex;
+  min-width: 0;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #c8bea9;
+  border-radius: 8px;
+  background: #fffdf8;
+  color: #303632;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.data-tool-grid button:hover {
+  border-color: #9fb9ad;
+  background: #edf4ef;
+  color: #1e594c;
+}
+
+.data-tools p {
+  overflow-wrap: anywhere;
+  margin: 0;
+  color: #706b60;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .modal-actions {

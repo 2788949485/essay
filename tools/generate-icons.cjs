@@ -5,6 +5,35 @@ const sharp = require("sharp");
 const sizes = [16, 24, 32, 48, 64, 128, 256];
 const icoSizes = [16, 32, 48, 64, 128, 256];
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function writeBufferIfChanged(filePath, buffer) {
+  try {
+    const current = await fs.readFile(filePath);
+    if (Buffer.compare(current, buffer) === 0) return;
+  } catch {
+    // Missing files are created below.
+  }
+
+  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  await fs.writeFile(tmpPath, buffer);
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await fs.rename(tmpPath, filePath);
+      return;
+    } catch (error) {
+      if (attempt === 4) {
+        await fs.rm(tmpPath, { force: true }).catch(() => undefined);
+        throw error;
+      }
+      await sleep(150 * (attempt + 1));
+    }
+  }
+}
+
 function makeDibIconImage(rawRgba, size) {
   const headerSize = 40;
   const xorSize = size * size * 4;
@@ -100,7 +129,7 @@ async function main() {
   for (const size of sizes) {
     const buffer = await renderPng(svgBuffer, size);
     pngs.push({ size, buffer });
-    await fs.writeFile(path.join(outputDir, `icon-${size}.png`), buffer);
+    await writeBufferIfChanged(path.join(outputDir, `icon-${size}.png`), buffer);
 
     if (icoSizes.includes(size)) {
       const raw = await renderRaw(svgBuffer, size);
@@ -108,9 +137,9 @@ async function main() {
     }
   }
 
-  await fs.writeFile(path.join(outputDir, "tray.png"), pngs.find((item) => item.size === 32).buffer);
-  await fs.writeFile(path.join(outputDir, "icon.png"), pngs.find((item) => item.size === 256).buffer);
-  await fs.writeFile(path.join(outputDir, "icon.ico"), makeIco(icoImages));
+  await writeBufferIfChanged(path.join(outputDir, "tray.png"), pngs.find((item) => item.size === 32).buffer);
+  await writeBufferIfChanged(path.join(outputDir, "icon.png"), pngs.find((item) => item.size === 256).buffer);
+  await writeBufferIfChanged(path.join(outputDir, "icon.ico"), makeIco(icoImages));
 }
 
 main().catch((error) => {

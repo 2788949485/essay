@@ -1,7 +1,22 @@
 {
   "name": "suiji",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "随记 - 快捷呼出的本地自动保存富文本记录工具",
+  "keywords": [
+    "electron",
+    "notes",
+    "rich-text",
+    "desktop",
+    "windows"
+  ],
+  "homepage": "https://github.com/2788949485/essay#readme",
+  "bugs": {
+    "url": "https://github.com/2788949485/essay/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/2788949485/essay.git"
+  },
   "author": "Suiji",
   "license": "MIT",
   "type": "commonjs",
@@ -72,11 +87,14 @@
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.0",
     "cross-env": "^7.0.3",
-    "electron": "^33.2.1",
-    "electron-builder": "^25.1.8",
+    "electron": "^42.3.0",
+    "electron-builder": "^26.8.1",
     "sharp": "^0.34.5",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
     "wait-on": "^8.0.1"
+  },
+  "engines": {
+    "node": ">=22.12"
   }
 }

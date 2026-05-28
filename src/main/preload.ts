@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AppSettings, ExportPayload, NoteRecord, SettingsUpdatePayload } from "../shared/types.js";
+import type { AppSettings, ExportPayload, NoteRecord, RestoreResult, SettingsUpdatePayload } from "../shared/types.js";
 
 const api = {
   listNotes: () => ipcRenderer.invoke("notes:list") as Promise<NoteRecord[]>,
@@ -7,11 +7,15 @@ const api = {
   saveNote: (note: NoteRecord) => ipcRenderer.invoke("notes:save", note) as Promise<NoteRecord>,
   togglePinNote: (id: string) => ipcRenderer.invoke("notes:toggle-pin", id) as Promise<NoteRecord>,
   deleteNote: (id: string) => ipcRenderer.invoke("notes:delete", id) as Promise<void>,
+  backupAllNotes: () => ipcRenderer.invoke("notes:backup-all") as Promise<string | null>,
+  restoreNotesBackup: () => ipcRenderer.invoke("notes:restore-backup") as Promise<RestoreResult | null>,
   exportNote: (payload: ExportPayload) => ipcRenderer.invoke("notes:export", payload) as Promise<string | null>,
   getSettings: () => ipcRenderer.invoke("settings:get") as Promise<AppSettings>,
   updateSettings: (settings: SettingsUpdatePayload) =>
     ipcRenderer.invoke("settings:update", settings) as Promise<AppSettings>,
   verifyPrivacyPin: (pin: string) => ipcRenderer.invoke("privacy:verify-pin", pin) as Promise<boolean>,
+  openExternalLink: (url: string) => ipcRenderer.invoke("shell:open-external", url) as Promise<boolean>,
+  openDataFolder: () => ipcRenderer.invoke("app:open-data-folder") as Promise<string | null>,
   hideWindow: () => ipcRenderer.invoke("window:hide") as Promise<void>,
   onNewNote: (callback: () => void) => {
     const listener = () => callback();

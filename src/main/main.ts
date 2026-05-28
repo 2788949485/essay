@@ -6,16 +6,31 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  shell,
   Tray
 } from "electron";
 import type { MenuItemConstructorOptions, MessageBoxOptions } from "electron";
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { toMarkdown } from "../shared/markdown.js";
-import type { AppSettings, ExportPayload, NoteRecord, SettingsUpdatePayload } from "../shared/types.js";
+import type {
+  AppSettings,
+  ExportPayload,
+  NoteRecord,
+  NotesBackup,
+  RestoreResult,
+  SettingsUpdatePayload
+} from "../shared/types.js";
 
 const DEFAULT_HOTKEY = "CommandOrControl+Alt+J";
+const NOTE_ID_PATTERN = /^[a-f0-9-]{36}$/i;
+const MAX_TEXT_FIELD_LENGTH = 500_000;
+const MAX_PIN_LENGTH = 128;
+const EDIT_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
+const ALLOWED_EXPORT_FORMATS = new Set(["html", "json", "txt", "md"]);
+const ALLOWED_EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
+
 type StoredSettings = Omit<AppSettings, "hasPrivacyPin"> & {
   privacyPinHash: string | null;
   privacyPinSalt: string | null;
@@ -32,6 +47,7 @@ const DEFAULT_SETTINGS: StoredSettings = {
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
+let dataRootDir = "";
 let notesDir = "";
 let backupsDir = "";
 let settingsPath = "";
@@ -60,6 +76,7 @@ function assetPath(fileName: string) {
 
 async function ensureStorage() {
   const dataRoot = app.getPath("userData");
+  dataRootDir = dataRoot;
   notesDir = path.join(dataRoot, "notes");
   backupsDir = path.join(dataRoot, "backups");
   settingsPath = path.join(dataRoot, "settings.json");
@@ -67,7 +84,14 @@ async function ensureStorage() {
   await fs.mkdir(backupsDir, { recursive: true });
 }
 
+function assertNoteId(id: string) {
+  if (!NOTE_ID_PATTERN.test(id)) {
+    throw new Error("Invalid note id");
+  }
+}
+
 function notePath(id: string) {
+  assertNoteId(id);
   return path.join(notesDir, `${id}.json`);
 }
 
@@ -89,17 +113,27 @@ function hashPin(pin: string, salt: string) {
   return createHash("sha256").update(`${salt}:${pin}`).digest("hex");
 }
 
+function hashPinScrypt(pin: string, salt: string) {
+  return scryptSync(pin, salt, 64).toString("hex");
+}
+
 function verifyPin(settings: StoredSettings, pin: string) {
   if (!settings.privacyPinHash || !settings.privacyPinSalt) return true;
   const expected = Buffer.from(settings.privacyPinHash, "hex");
-  const actual = Buffer.from(hashPin(pin, settings.privacyPinSalt), "hex");
+  const candidateHash = expected.length === 32 ? hashPin(pin, settings.privacyPinSalt) : hashPinScrypt(pin, settings.privacyPinSalt);
+  const actual = Buffer.from(candidateHash, "hex");
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
 async function atomicWriteFile(filePath: string, content: string) {
   const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  await fs.writeFile(tmpPath, content, "utf8");
-  await fs.rename(tmpPath, filePath);
+  try {
+    await fs.writeFile(tmpPath, content, "utf8");
+    await fs.rename(tmpPath, filePath);
+  } catch (error) {
+    await fs.rm(tmpPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 async function backupExistingNote(id: string, prefix = "note") {
@@ -108,6 +142,25 @@ async function backupExistingNote(id: string, prefix = "note") {
   } catch {
     // No backup is needed when the note does not exist yet.
   }
+}
+
+async function backupExistingNoteIfStale(id: string, prefix = "note", minIntervalMs = EDIT_BACKUP_INTERVAL_MS) {
+  try {
+    const entries = await fs.readdir(backupsDir, { withFileTypes: true });
+    const hasRecentBackup = await Promise.all(
+      entries
+        .filter((entry) => entry.isFile() && entry.name.startsWith(`${prefix}-`) && entry.name.endsWith(`-${id}.json`))
+        .map(async (entry) => {
+          const stat = await fs.stat(path.join(backupsDir, entry.name));
+          return Date.now() - stat.mtimeMs < minIntervalMs;
+        })
+    );
+    if (hasRecentBackup.some(Boolean)) return;
+  } catch {
+    // Fall through to a best-effort backup when checking existing backups fails.
+  }
+
+  await backupExistingNote(id, prefix);
 }
 
 async function pruneBackups(limit = 80) {
@@ -138,6 +191,118 @@ function safeExportName(name: string, ext: string) {
   return `${base || "未命名记录"}.${ext}`;
 }
 
+function defaultBackupName() {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  return `suiji-backup-${stamp}.json`;
+}
+
+function coerceString(value: unknown, fallback = "", maxLength = MAX_TEXT_FIELD_LENGTH) {
+  if (typeof value !== "string") return fallback;
+  return value.slice(0, maxLength);
+}
+
+function normalizeTags(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((item) => item.slice(0, 24))
+    )
+  ).slice(0, 12);
+}
+
+function validateExternalUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return ALLOWED_EXTERNAL_PROTOCOLS.has(url.protocol) ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+function isAllowedAppNavigation(targetUrl: string) {
+  try {
+    const url = new URL(targetUrl);
+    const devServer = process.env.VITE_DEV_SERVER_URL;
+    if (devServer && url.origin === new URL(devServer).origin) return true;
+    if (url.protocol !== "file:") return false;
+
+    const rendererRoot = path.resolve(__dirname, "../renderer");
+    const targetPath = path.resolve(decodeURIComponent(url.pathname.replace(/^\/([A-Za-z]:)/, "$1")));
+    return targetPath === rendererRoot || targetPath.startsWith(`${rendererRoot}${path.sep}`);
+  } catch {
+    return false;
+  }
+}
+
+function isExportFormat(value: unknown): value is ExportPayload["format"] {
+  return typeof value === "string" && ALLOWED_EXPORT_FORMATS.has(value);
+}
+
+function sanitizeSettingsPayload(raw: unknown): SettingsUpdatePayload {
+  if (!raw || typeof raw !== "object") {
+    throw new Error("Invalid settings payload");
+  }
+  const payload = raw as Partial<SettingsUpdatePayload>;
+  return {
+    hotkey: coerceString(payload.hotkey, DEFAULT_HOTKEY, 120).trim() || DEFAULT_HOTKEY,
+    startHidden: Boolean(payload.startHidden),
+    lockOnHide: Boolean(payload.lockOnHide),
+    privacyPin: typeof payload.privacyPin === "string" ? payload.privacyPin.slice(0, MAX_PIN_LENGTH) : undefined,
+    clearPrivacyPin: Boolean(payload.clearPrivacyPin)
+  };
+}
+
+function sanitizeNotePayload(raw: unknown): NoteRecord {
+  if (!raw || typeof raw !== "object") {
+    throw new Error("Invalid note payload");
+  }
+
+  const note = raw as Partial<NoteRecord>;
+  if (typeof note.id !== "string") {
+    throw new Error("Invalid note id");
+  }
+  assertNoteId(note.id);
+
+  return normalizeNote({
+    id: note.id,
+    title: coerceString(note.title, "未命名记录", 300),
+    excerpt: coerceString(note.excerpt, "", 500),
+    tags: normalizeTags(note.tags),
+    pinnedAt: typeof note.pinnedAt === "string" ? note.pinnedAt : null,
+    content: note.content && typeof note.content === "object" ? note.content : emptyDoc,
+    html: coerceString(note.html),
+    plainText: coerceString(note.plainText),
+    createdAt: coerceString(note.createdAt, new Date().toISOString(), 80),
+    updatedAt: coerceString(note.updatedAt, new Date().toISOString(), 80)
+  });
+}
+
+function sanitizeExportPayload(raw: unknown): ExportPayload {
+  if (!raw || typeof raw !== "object") {
+    throw new Error("Invalid export payload");
+  }
+  const payload = raw as Partial<ExportPayload>;
+  if (!isExportFormat(payload.format)) {
+    throw new Error("Invalid export format");
+  }
+  return {
+    format: payload.format,
+    note: sanitizeNotePayload(payload.note)
+  };
+}
+
+function parseBackupNotes(raw: unknown): unknown[] {
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === "object" && Array.isArray((raw as Partial<NotesBackup>).notes)) {
+    return (raw as Partial<NotesBackup>).notes ?? [];
+  }
+  throw new Error("Invalid backup file");
+}
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, "&amp;")
@@ -145,6 +310,93 @@ function escapeHtml(value: string) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function escapeHtmlAttribute(value: string) {
+  return escapeHtml(value).replace(/`/g, "&#96;");
+}
+
+type JsonNode = NoteRecord["content"];
+
+function safeHtmlUrl(value: unknown) {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return "";
+  if (raw.startsWith("data:image/")) return raw;
+  return validateExternalUrl(raw) ?? "";
+}
+
+function renderInlineHtml(node: JsonNode): string {
+  if (node.type === "text") {
+    const text = escapeHtml(node.text ?? "");
+    return (node.marks ?? []).reduce((current, mark) => {
+      if (mark.type === "bold") return `<strong>${current}</strong>`;
+      if (mark.type === "italic") return `<em>${current}</em>`;
+      if (mark.type === "strike") return `<s>${current}</s>`;
+      if (mark.type === "underline") return `<u>${current}</u>`;
+      if (mark.type === "code") return `<code>${current}</code>`;
+      if (mark.type === "highlight") return `<mark>${current}</mark>`;
+      if (mark.type === "link") {
+        const href = safeHtmlUrl(mark.attrs?.href);
+        return href ? `<a href="${escapeHtmlAttribute(href)}" rel="noreferrer">${current}</a>` : current;
+      }
+      return current;
+    }, text);
+  }
+
+  if (node.type === "hardBreak") return "<br>";
+  if (node.type === "image") return renderBlockHtml(node);
+  return (node.content ?? []).map(renderInlineHtml).join("");
+}
+
+function renderListItemHtml(node: JsonNode): string {
+  const children = node.content ?? [];
+  const body = children.map(renderBlockHtml).join("");
+  return `<li>${body || "<p></p>"}</li>`;
+}
+
+function renderTaskItemHtml(node: JsonNode): string {
+  const checked = node.attrs?.checked ? " checked" : "";
+  const children = node.content ?? [];
+  return `<li><label><input type="checkbox"${checked} disabled></label><div>${children.map(renderBlockHtml).join("") || "<p></p>"}</div></li>`;
+}
+
+function renderBlockHtml(node: JsonNode): string {
+  const children = node.content ?? [];
+
+  switch (node.type) {
+    case "doc":
+      return children.map(renderBlockHtml).join("");
+    case "paragraph":
+      return `<p>${renderInlineHtml(node)}</p>`;
+    case "heading": {
+      const level = Math.min(Math.max(Number(node.attrs?.level ?? 1), 1), 6);
+      return `<h${level}>${renderInlineHtml(node)}</h${level}>`;
+    }
+    case "blockquote":
+      return `<blockquote>${children.map(renderBlockHtml).join("")}</blockquote>`;
+    case "bulletList":
+      return `<ul>${children.map(renderListItemHtml).join("")}</ul>`;
+    case "orderedList":
+      return `<ol>${children.map(renderListItemHtml).join("")}</ol>`;
+    case "taskList":
+      return `<ul data-type="taskList">${children.map(renderTaskItemHtml).join("")}</ul>`;
+    case "listItem":
+      return renderListItemHtml(node);
+    case "taskItem":
+      return renderTaskItemHtml(node);
+    case "codeBlock":
+      return `<pre><code>${escapeHtml(children.map((child) => child.text ?? "").join(""))}</code></pre>`;
+    case "horizontalRule":
+      return "<hr>";
+    case "image": {
+      const src = safeHtmlUrl(node.attrs?.src);
+      if (!src) return "";
+      const alt = escapeHtmlAttribute(typeof node.attrs?.alt === "string" ? node.attrs.alt : "");
+      return `<img src="${escapeHtmlAttribute(src)}" alt="${alt}">`;
+    }
+    default:
+      return children.map(renderBlockHtml).join("");
+  }
 }
 
 function formatExportDate(value: string) {
@@ -318,6 +570,10 @@ function buildHtmlExport(note: NoteRecord) {
       padding-top: 2px;
     }
 
+    ul[data-type="taskList"] div > *:first-child {
+      margin-top: 0;
+    }
+
     code {
       padding: 2px 5px;
       border-radius: 4px;
@@ -400,7 +656,7 @@ function buildHtmlExport(note: NoteRecord) {
       </div>
     </header>
     <main>
-      ${note.html || "<p></p>"}
+      ${renderBlockHtml(note.content) || "<p></p>"}
     </main>
     <footer>
       Copyright (c) 2026 Suiji. Exported from 随记.
@@ -416,6 +672,7 @@ function normalizeNote(raw: Partial<NoteRecord>): NoteRecord {
     id: typeof raw.id === "string" && raw.id ? raw.id : randomUUID(),
     title: typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : "未命名记录",
     excerpt: typeof raw.excerpt === "string" ? raw.excerpt : "",
+    tags: normalizeTags(raw.tags),
     pinnedAt: typeof raw.pinnedAt === "string" ? raw.pinnedAt : null,
     content: raw.content ?? emptyDoc,
     html: typeof raw.html === "string" ? raw.html : "",
@@ -455,10 +712,11 @@ async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<App
   if (payload.clearPrivacyPin) {
     next.privacyPinHash = null;
     next.privacyPinSalt = null;
-  } else if (payload.privacyPin?.trim()) {
+  } else if (typeof payload.privacyPin === "string" && payload.privacyPin.trim()) {
+    const pin = payload.privacyPin.trim().slice(0, MAX_PIN_LENGTH);
     const salt = randomBytes(16).toString("hex");
     next.privacyPinSalt = salt;
-    next.privacyPinHash = hashPin(payload.privacyPin.trim(), salt);
+    next.privacyPinHash = hashPinScrypt(pin, salt);
   }
 
   await writeStoredSettings(next);
@@ -467,16 +725,115 @@ async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<App
 
 async function listNotes(): Promise<NoteRecord[]> {
   const files = await fs.readdir(notesDir);
-  const notes = await Promise.all(
+  const notes: NoteRecord[] = [];
+  const corruptDir = path.join(notesDir, "corrupt");
+
+  await Promise.all(
     files
-      .filter((file) => file.endsWith(".json"))
+      .filter((file) => file.endsWith(".json") && NOTE_ID_PATTERN.test(path.basename(file, ".json")))
       .map(async (file) => {
-        const raw = await fs.readFile(path.join(notesDir, file), "utf8");
-        return normalizeNote(JSON.parse(raw));
+        const filePath = path.join(notesDir, file);
+        try {
+          const raw = await fs.readFile(filePath, "utf8");
+          notes.push(normalizeNote(JSON.parse(raw)));
+        } catch {
+          await fs.mkdir(corruptDir, { recursive: true });
+          await fs.rename(filePath, path.join(corruptDir, `${Date.now()}-${file}`)).catch(() => undefined);
+        }
       })
   );
 
   return sortNotes(notes);
+}
+
+async function exportAllNotesBackup() {
+  const notes = await listNotes();
+  const backup: NotesBackup = {
+    app: "suiji",
+    version: app.getVersion(),
+    exportedAt: new Date().toISOString(),
+    notes
+  };
+  const result = mainWindow
+    ? await dialog.showSaveDialog(mainWindow, {
+        title: "备份全部记录",
+        defaultPath: defaultBackupName(),
+        filters: [
+          { name: "JSON Backup", extensions: ["json"] },
+          { name: "All Files", extensions: ["*"] }
+        ]
+      })
+    : await dialog.showSaveDialog({
+        title: "备份全部记录",
+        defaultPath: defaultBackupName(),
+        filters: [
+          { name: "JSON Backup", extensions: ["json"] },
+          { name: "All Files", extensions: ["*"] }
+        ]
+      });
+
+  if (result.canceled || !result.filePath) return null;
+  await atomicWriteFile(result.filePath, JSON.stringify(backup, null, 2));
+  return result.filePath;
+}
+
+async function restoreNotesBackup(): Promise<RestoreResult | null> {
+  const result = mainWindow
+    ? await dialog.showOpenDialog(mainWindow, {
+        title: "恢复记录备份",
+        properties: ["openFile"],
+        filters: [
+          { name: "JSON Backup", extensions: ["json"] },
+          { name: "All Files", extensions: ["*"] }
+        ]
+      })
+    : await dialog.showOpenDialog({
+        title: "恢复记录备份",
+        properties: ["openFile"],
+        filters: [
+          { name: "JSON Backup", extensions: ["json"] },
+          { name: "All Files", extensions: ["*"] }
+        ]
+      });
+
+  if (result.canceled || result.filePaths.length === 0) return null;
+
+  const warningOptions: MessageBoxOptions = {
+    type: "warning",
+    buttons: ["继续恢复", "取消"],
+    cancelId: 1,
+    defaultId: 1,
+    title: "恢复记录备份",
+    message: "恢复会导入备份中的记录",
+    detail: "如果备份中存在和本地相同 ID 的记录，本地记录会先保存到 backups/ 后再被覆盖。"
+  };
+  const warning = mainWindow
+    ? await dialog.showMessageBox(mainWindow, warningOptions)
+    : await dialog.showMessageBox(warningOptions);
+  if (warning.response !== 0) return null;
+
+  const raw = await fs.readFile(result.filePaths[0], "utf8");
+  const backupNotes = parseBackupNotes(JSON.parse(raw));
+  let imported = 0;
+  let skipped = 0;
+
+  for (const rawNote of backupNotes) {
+    try {
+      const note = sanitizeNotePayload(rawNote);
+      await backupExistingNote(note.id, "restore");
+      await atomicWriteFile(notePath(note.id), JSON.stringify(note, null, 2));
+      imported += 1;
+    } catch {
+      skipped += 1;
+    }
+  }
+
+  void pruneBackups();
+  return {
+    total: backupNotes.length,
+    imported,
+    skipped
+  };
 }
 
 function sortNotes(notes: NoteRecord[]) {
@@ -488,7 +845,8 @@ function sortNotes(notes: NoteRecord[]) {
   });
 }
 
-async function saveNote(note: NoteRecord): Promise<NoteRecord> {
+async function saveNote(rawNote: NoteRecord): Promise<NoteRecord> {
+  const note = sanitizeNotePayload(rawNote);
   const plainText = note.plainText.trim();
   const normalized = normalizeNote({
     ...note,
@@ -497,16 +855,13 @@ async function saveNote(note: NoteRecord): Promise<NoteRecord> {
     updatedAt: new Date().toISOString()
   });
 
-  await backupExistingNote(normalized.id);
+  await backupExistingNoteIfStale(normalized.id);
   await atomicWriteFile(notePath(normalized.id), JSON.stringify(normalized, null, 2));
   void pruneBackups();
   return normalized;
 }
 
 async function readNote(id: string): Promise<NoteRecord> {
-  if (!/^[a-f0-9-]{36}$/i.test(id)) {
-    throw new Error("Invalid note id");
-  }
   const raw = await fs.readFile(notePath(id), "utf8");
   return normalizeNote(JSON.parse(raw));
 }
@@ -537,12 +892,33 @@ async function createNote(): Promise<NoteRecord> {
 }
 
 async function deleteNote(id: string) {
-  if (!/^[a-f0-9-]{36}$/i.test(id)) {
-    throw new Error("Invalid note id");
-  }
   await backupExistingNote(id, "deleted");
   await fs.rm(notePath(id), { force: true });
   void pruneBackups();
+}
+
+function setupWebContentsGuards(window: BrowserWindow) {
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    const externalUrl = validateExternalUrl(url);
+    if (externalUrl) {
+      void shell.openExternal(externalUrl);
+    }
+    return { action: "deny" };
+  });
+
+  window.webContents.on("will-navigate", (event, url) => {
+    if (isAllowedAppNavigation(url)) return;
+
+    event.preventDefault();
+    const externalUrl = validateExternalUrl(url);
+    if (externalUrl) {
+      void shell.openExternal(externalUrl);
+    }
+  });
+
+  window.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
 }
 
 function createWindow() {
@@ -559,9 +935,11 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   });
+
+  setupWebContentsGuards(mainWindow);
 
   mainWindow.on("close", (event) => {
     if (!isQuitting) {
@@ -673,7 +1051,7 @@ function createApplicationMenu() {
               title: "关于随记",
               message: "随记",
               detail:
-                "版本：0.1.0\n版权：Copyright (c) 2026 Suiji. All rights reserved.\n\n随记是快捷呼出的本地自动保存富文本记录工具。笔记默认保存在本机用户数据目录，导出文件为明文，请自行确认保存位置安全。"
+                `版本：${app.getVersion()}\n版权：Copyright (c) 2026 Suiji. All rights reserved.\n\n随记是快捷呼出的本地自动保存富文本记录工具。笔记默认保存在本机用户数据目录，导出文件为明文，请自行确认保存位置安全。`
             } as const;
             if (mainWindow) {
               void dialog.showMessageBox(mainWindow, options);
@@ -740,7 +1118,10 @@ function registerIpc() {
   ipcMain.handle("notes:save", (_event, note: NoteRecord) => saveNote(note));
   ipcMain.handle("notes:toggle-pin", (_event, id: string) => togglePinNote(id));
   ipcMain.handle("notes:delete", (_event, id: string) => deleteNote(id));
-  ipcMain.handle("notes:export", async (_event, payload: ExportPayload) => {
+  ipcMain.handle("notes:backup-all", exportAllNotesBackup);
+  ipcMain.handle("notes:restore-backup", restoreNotesBackup);
+  ipcMain.handle("notes:export", async (_event, rawPayload: ExportPayload) => {
+    const payload = sanitizeExportPayload(rawPayload);
     const ext = payload.format;
     const warningOptions: MessageBoxOptions = {
       type: "warning",
@@ -783,13 +1164,27 @@ function registerIpc() {
     return result.filePath;
   });
   ipcMain.handle("settings:get", readSettings);
-  ipcMain.handle("settings:update", async (_event, settings: SettingsUpdatePayload) => {
+  ipcMain.handle("settings:update", async (_event, rawSettings: SettingsUpdatePayload) => {
+    const settings = sanitizeSettingsPayload(rawSettings);
     const next = await updateStoredSettings(settings);
     registerHotkey(next.hotkey);
     tray?.setToolTip(`随记 - ${next.hotkey} 呼出`);
     return next;
   });
-  ipcMain.handle("privacy:verify-pin", async (_event, pin: string) => verifyPin(await readStoredSettings(), pin));
+  ipcMain.handle("privacy:verify-pin", async (_event, pin: string) =>
+    verifyPin(await readStoredSettings(), coerceString(pin, "", MAX_PIN_LENGTH))
+  );
+  ipcMain.handle("shell:open-external", async (_event, value: string) => {
+    const url = validateExternalUrl(coerceString(value, "", 2048));
+    if (!url) return false;
+    await shell.openExternal(url);
+    return true;
+  });
+  ipcMain.handle("app:open-data-folder", async () => {
+    await fs.mkdir(dataRootDir, { recursive: true });
+    const error = await shell.openPath(dataRootDir);
+    return error || null;
+  });
   ipcMain.handle("window:hide", () => {
     void lockContentForPrivacy();
     mainWindow?.hide();

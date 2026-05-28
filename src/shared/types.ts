@@ -4,6 +4,7 @@ export type NoteSummary = {
   id: string;
   title: string;
   excerpt: string;
+  tags: string[];
   pinnedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -33,4 +34,17 @@ export type SettingsUpdatePayload = {
 export type ExportPayload = {
   note: NoteRecord;
   format: "html" | "json" | "txt" | "md";
+};
+
+export type NotesBackup = {
+  app: "suiji";
+  version: string;
+  exportedAt: string;
+  notes: NoteRecord[];
+};
+
+export type RestoreResult = {
+  total: number;
+  imported: number;
+  skipped: number;
 };
