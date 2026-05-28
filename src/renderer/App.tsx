@@ -662,6 +662,29 @@ export default function App() {
     setDataActionStatus(error ? `打开失败：${error}` : "已打开本地数据目录");
   }
 
+  async function handleChangeDataFolder() {
+    setDataActionStatus("正在选择数据目录...");
+    const dataPath = await window.suiji.changeDataFolder();
+    if (!dataPath) {
+      setDataActionStatus("已取消修改数据目录");
+      return;
+    }
+
+    const loaded = await reloadNotes("active");
+    if (loaded.length === 0) {
+      const created = await window.suiji.createNote();
+      setNotes([created]);
+      setActiveId(created.id);
+    }
+    const loadedSettings = await window.suiji.getSettings();
+    setSettings(loadedSettings);
+    setHotkeyDraft(loadedSettings.hotkey);
+    setViewMode("active");
+    setSelectedFolder("");
+    setSelectedTag("");
+    setDataActionStatus(`数据目录已切换：${dataPath}`);
+  }
+
   async function handleOpenHistory() {
     if (!activeNote) return;
     setHistoryStatus("正在读取历史版本...");
@@ -1377,6 +1400,10 @@ export default function App() {
                 <button type="button" onClick={() => void handleOpenDataFolder()}>
                   <FolderOpen size={16} />
                   数据目录
+                </button>
+                <button type="button" onClick={() => void handleChangeDataFolder()}>
+                  <Folder size={16} />
+                  修改目录
                 </button>
               </div>
               {dataActionStatus ? <p>{dataActionStatus}</p> : null}

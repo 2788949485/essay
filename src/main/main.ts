@@ -11,6 +11,7 @@ import {
 } from "electron";
 import type { MenuItemConstructorOptions, MessageBoxOptions } from "electron";
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { toMarkdown } from "../shared/markdown.js";
@@ -54,6 +55,10 @@ let notesDir = "";
 let backupsDir = "";
 let settingsPath = "";
 
+type StorageConfig = {
+  dataRoot?: string;
+};
+
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
@@ -76,8 +81,32 @@ function assetPath(fileName: string) {
   return path.join(app.getAppPath(), "build", fileName);
 }
 
+function defaultDataRoot() {
+  return app.getPath("userData");
+}
+
+function storageConfigPath() {
+  return path.join(defaultDataRoot(), "storage.json");
+}
+
+async function readStorageConfig(): Promise<StorageConfig> {
+  try {
+    const raw = await fs.readFile(storageConfigPath(), "utf8");
+    return JSON.parse(raw) as StorageConfig;
+  } catch {
+    return {};
+  }
+}
+
+async function writeStorageConfig(config: StorageConfig) {
+  await fs.mkdir(defaultDataRoot(), { recursive: true });
+  await atomicWriteFile(storageConfigPath(), JSON.stringify(config, null, 2));
+}
+
 async function ensureStorage() {
-  const dataRoot = app.getPath("userData");
+  const config = await readStorageConfig();
+  const configuredRoot = typeof config.dataRoot === "string" && config.dataRoot.trim() ? config.dataRoot.trim() : "";
+  const dataRoot = configuredRoot ? path.resolve(configuredRoot) : defaultDataRoot();
   dataRootDir = dataRoot;
   notesDir = path.join(dataRoot, "notes");
   backupsDir = path.join(dataRoot, "backups");
@@ -1008,6 +1037,75 @@ async function restoreNoteBackup(id: string, fileName: string): Promise<NoteReco
   return restored;
 }
 
+async function copyPathIfExists(source: string, target: string) {
+  try {
+    const stat = await fs.stat(source);
+    if (stat.isDirectory()) {
+      await fs.cp(source, target, { recursive: true, force: false, errorOnExist: false });
+      return;
+    }
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.copyFile(source, target, fsConstants.COPYFILE_EXCL).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "EEXIST") throw error;
+    });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+async function migrateDataRoot(targetRoot: string) {
+  const sourceRoot = dataRootDir;
+  const resolvedTarget = path.resolve(targetRoot);
+  const resolvedSource = path.resolve(sourceRoot);
+  if (resolvedTarget === resolvedSource || resolvedTarget.startsWith(`${resolvedSource}${path.sep}`)) {
+    throw new Error("新数据目录不能位于当前数据目录内部");
+  }
+
+  await fs.mkdir(resolvedTarget, { recursive: true });
+  await copyPathIfExists(path.join(sourceRoot, "notes"), path.join(resolvedTarget, "notes"));
+  await copyPathIfExists(path.join(sourceRoot, "backups"), path.join(resolvedTarget, "backups"));
+  await copyPathIfExists(path.join(sourceRoot, "settings.json"), path.join(resolvedTarget, "settings.json"));
+}
+
+async function changeDataFolder() {
+  const result = mainWindow
+    ? await dialog.showOpenDialog(mainWindow, {
+        title: "选择数据目录",
+        defaultPath: dataRootDir,
+        properties: ["openDirectory", "createDirectory"]
+      })
+    : await dialog.showOpenDialog({
+        title: "选择数据目录",
+        defaultPath: dataRootDir,
+        properties: ["openDirectory", "createDirectory"]
+      });
+
+  if (result.canceled || result.filePaths.length === 0) return null;
+
+  const selectedRoot = path.resolve(result.filePaths[0]);
+  if (selectedRoot === path.resolve(dataRootDir)) return dataRootDir;
+
+  const options: MessageBoxOptions = {
+    type: "question",
+    buttons: ["复制现有数据并切换", "只切换目录", "取消"],
+    defaultId: 0,
+    cancelId: 2,
+    title: "修改数据目录",
+    message: "是否把当前记录和设置复制到新数据目录？",
+    detail: "选择“只切换目录”会使用新目录中的现有数据；如果新目录为空，应用会重新创建空记录。"
+  };
+  const answer = mainWindow ? await dialog.showMessageBox(mainWindow, options) : await dialog.showMessageBox(options);
+  if (answer.response === 2) return null;
+
+  if (answer.response === 0) {
+    await migrateDataRoot(selectedRoot);
+  }
+
+  await writeStorageConfig({ dataRoot: selectedRoot });
+  await ensureStorage();
+  return dataRootDir;
+}
+
 function setupWebContentsGuards(window: BrowserWindow) {
   window.webContents.setWindowOpenHandler(({ url }) => {
     const externalUrl = validateExternalUrl(url);
@@ -1304,6 +1402,7 @@ function registerIpc() {
     const error = await shell.openPath(dataRootDir);
     return error || null;
   });
+  ipcMain.handle("app:change-data-folder", changeDataFolder);
   ipcMain.handle("window:hide", () => {
     void lockContentForPrivacy();
     mainWindow?.hide();

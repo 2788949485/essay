@@ -23,6 +23,7 @@ const api = {
   verifyPrivacyPin: (pin: string) => ipcRenderer.invoke("privacy:verify-pin", pin) as Promise<boolean>,
   openExternalLink: (url: string) => ipcRenderer.invoke("shell:open-external", url) as Promise<boolean>,
   openDataFolder: () => ipcRenderer.invoke("app:open-data-folder") as Promise<string | null>,
+  changeDataFolder: () => ipcRenderer.invoke("app:change-data-folder") as Promise<string | null>,
   hideWindow: () => ipcRenderer.invoke("window:hide") as Promise<void>,
   onNewNote: (callback: () => void) => {
     const listener = () => callback();

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1 - 2026-05-28
+
+- Improved sidebar view-switch layout from cramped five-column buttons to wider two-column controls.
+- Added configurable data directory selection with optional migration of notes, backups, and settings.
+- Adjusted data-management controls to avoid crowded button layout.
+
 ## 0.5.0 - 2026-05-28
 
 - Added folders, favorites, archive state, soft-delete recycle bin, and permanent delete.
