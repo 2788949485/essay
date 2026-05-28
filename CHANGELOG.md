@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0 - 2026-05-28
+
+- Added folders, favorites, archive state, soft-delete recycle bin, and permanent delete.
+- Added a recent-edit timeline view in the sidebar.
+- Added current-note version history UI backed by existing `backups/` files.
+- Extended the note schema with `folder`, `favoriteAt`, `archivedAt`, and `trashedAt` while keeping older notes compatible.
+
 ## 0.4.0 - 2026-05-28
 
 - Added note tags with editing, search matching, sidebar filtering, and note-card tag display.

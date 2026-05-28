@@ -5,6 +5,10 @@ export type NoteSummary = {
   title: string;
   excerpt: string;
   tags: string[];
+  folder: string;
+  favoriteAt: string | null;
+  archivedAt: string | null;
+  trashedAt: string | null;
   pinnedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -47,4 +51,11 @@ export type RestoreResult = {
   total: number;
   imported: number;
   skipped: number;
+};
+
+export type BackupEntry = {
+  fileName: string;
+  prefix: string;
+  createdAt: string;
+  size: number;
 };

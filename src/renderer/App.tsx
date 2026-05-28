@@ -10,12 +10,16 @@ import TaskItem from "@tiptap/extension-task-item";
 import Highlight from "@tiptap/extension-highlight";
 import Typography from "@tiptap/extension-typography";
 import {
+  Archive,
+  ArchiveRestore,
   Bold,
   CheckSquare,
+  Clock,
   Code2,
   Download,
   EyeOff,
   FileSearch,
+  Folder,
   FolderOpen,
   Heading1,
   Heading2,
@@ -37,16 +41,19 @@ import {
   Save,
   Search,
   Settings,
+  Star,
+  StarOff,
   Strikethrough,
   Trash2,
   Underline as UnderlineIcon,
   Undo2,
   Upload
 } from "lucide-react";
-import type { AppSettings, NoteRecord } from "../shared/types";
+import type { AppSettings, BackupEntry, NoteRecord } from "../shared/types";
 
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 type ExportFormat = "html" | "json" | "txt" | "md";
+type ViewMode = "active" | "favorites" | "archive" | "trash" | "recent";
 
 type FindMatch = {
   from: number;
@@ -89,6 +96,10 @@ function parseTagsInput(value: string) {
   ).slice(0, 12);
 }
 
+function normalizeFolderInput(value: string) {
+  return value.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").trim().slice(0, 40);
+}
+
 function ToolbarButton({
   active,
   disabled,
@@ -121,8 +132,11 @@ export default function App() {
   const [activeId, setActiveId] = useState<string>("");
   const [title, setTitle] = useState("");
   const [tagsDraft, setTagsDraft] = useState("");
+  const [folderDraft, setFolderDraft] = useState("");
   const [query, setQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState("");
+  const [selectedFolder, setSelectedFolder] = useState("");
+  const [viewMode, setViewMode] = useState<ViewMode>("active");
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -141,6 +155,9 @@ export default function App() {
   const [findMatches, setFindMatches] = useState<FindMatch[]>([]);
   const [findIndex, setFindIndex] = useState(0);
   const [dataActionStatus, setDataActionStatus] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyEntries, setHistoryEntries] = useState<BackupEntry[]>([]);
+  const [historyStatus, setHistoryStatus] = useState("");
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const activeIdRef = useRef("");
   const revisionRef = useRef(0);
@@ -227,11 +244,17 @@ export default function App() {
     if (!editor || !activeNote) return;
     setTitle(activeNote.title);
     setTagsDraft(activeNote.tags.join(", "));
+    setFolderDraft(activeNote.folder);
     editor.commands.setContent(activeNote.content, false);
     window.setTimeout(() => editor.commands.focus("end"), 0);
     revisionRef.current = 0;
     setSaveState("saved");
   }, [activeNote?.id, editor]);
+
+  useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(!activeNote?.trashedAt);
+  }, [activeNote?.trashedAt, editor]);
 
   useEffect(() => {
     if (!findOpen) return;
@@ -299,6 +322,7 @@ export default function App() {
       ...activeNote,
       title,
       tags: parseTagsInput(tagsDraft),
+      folder: normalizeFolderInput(folderDraft),
       content: editor.getJSON(),
       html: editor.getHTML(),
       plainText: editor.getText()
@@ -330,7 +354,7 @@ export default function App() {
     );
 
     return saveTask;
-  }, [activeNote, editor, tagsDraft, title]);
+  }, [activeNote, editor, folderDraft, tagsDraft, title]);
 
   useEffect(() => {
     if (saveState !== "dirty") return;
@@ -342,25 +366,70 @@ export default function App() {
 
   const filteredNotes = useMemo(() => {
     const keyword = query.trim().toLowerCase();
-    const source = sortNotes(notes);
+    const source =
+      viewMode === "recent"
+        ? [...notes].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+        : sortNotes(notes);
     return source.filter((note) => {
+      if (viewMode === "trash" && !note.trashedAt) return false;
+      if (viewMode !== "trash" && note.trashedAt) return false;
+      if (viewMode === "active" && note.archivedAt) return false;
+      if (viewMode === "favorites" && !note.favoriteAt) return false;
+      if (viewMode === "archive" && !note.archivedAt) return false;
       const matchesTag = !selectedTag || note.tags.includes(selectedTag);
+      const matchesFolder = !selectedFolder || note.folder === selectedFolder;
       const matchesKeyword =
         !keyword ||
         note.title.toLowerCase().includes(keyword) ||
         note.excerpt.toLowerCase().includes(keyword) ||
         note.plainText.toLowerCase().includes(keyword) ||
-        note.tags.some((tag) => tag.toLowerCase().includes(keyword));
-      return matchesTag && matchesKeyword;
+        note.tags.some((tag) => tag.toLowerCase().includes(keyword)) ||
+        note.folder.toLowerCase().includes(keyword);
+      return matchesTag && matchesFolder && matchesKeyword;
     });
-  }, [notes, query, selectedTag]);
+  }, [notes, query, selectedFolder, selectedTag, viewMode]);
 
   const allTags = useMemo(() => {
-    return Array.from(new Set(notes.flatMap((note) => note.tags))).sort((a, b) => a.localeCompare(b, "zh-CN"));
+    return Array.from(new Set(notes.filter((note) => !note.trashedAt).flatMap((note) => note.tags))).sort((a, b) =>
+      a.localeCompare(b, "zh-CN")
+    );
+  }, [notes]);
+
+  const allFolders = useMemo(() => {
+    return Array.from(new Set(notes.filter((note) => !note.trashedAt && note.folder).map((note) => note.folder))).sort((a, b) =>
+      a.localeCompare(b, "zh-CN")
+    );
+  }, [notes]);
+
+  const recentNotes = useMemo(() => {
+    return [...notes]
+      .filter((note) => !note.trashedAt)
+      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
+      .slice(0, 8);
   }, [notes]);
 
   function focusEditorSoon() {
     window.setTimeout(() => editor?.commands.focus("end"), 0);
+  }
+
+  function firstVisibleNote(source: NoteRecord[], mode = viewMode) {
+    return sortNotes(source).find((note) => {
+      if (mode === "trash") return Boolean(note.trashedAt);
+      if (note.trashedAt) return false;
+      if (mode === "favorites") return Boolean(note.favoriteAt);
+      if (mode === "archive") return Boolean(note.archivedAt);
+      if (mode === "active") return !note.archivedAt;
+      return true;
+    });
+  }
+
+  async function reloadNotes(selectMode = viewMode) {
+    const loaded = await window.suiji.listNotes();
+    setNotes(loaded);
+    const stillVisible = firstVisibleNote(loaded.filter((note) => note.id === activeId), selectMode);
+    const next = stillVisible ?? firstVisibleNote(loaded, selectMode) ?? firstVisibleNote(loaded, "active");
+    setActiveId(next?.id || "");
+    return loaded;
   }
 
   function findText(query = findQuery) {
@@ -452,9 +521,13 @@ export default function App() {
 
   async function handleCreate() {
     await saveActive({ skipClean: true });
-    const note = await window.suiji.createNote();
+    const created = await window.suiji.createNote();
+    const note = selectedFolder
+      ? await window.suiji.saveNote({ ...created, folder: selectedFolder })
+      : created;
     setNotes((current) => sortNotes([note, ...current]));
     setActiveId(note.id);
+    setViewMode("active");
     focusEditorSoon();
   }
 
@@ -471,25 +544,48 @@ export default function App() {
   async function handleDeleteNote(id: string) {
     const note = notes.find((item) => item.id === id);
     if (!note) return;
-    const ok = window.confirm(`删除「${note.title}」？`);
+    const ok = window.confirm(`移到回收站「${note.title}」？`);
     if (!ok) return;
 
     await window.suiji.deleteNote(id);
-    let nextNotes = sortNotes(notes.filter((item) => item.id !== id));
-    if (nextNotes.length === 0) {
-      const created = await window.suiji.createNote();
-      nextNotes = [created];
-    }
-    setNotes(nextNotes);
-    if (activeId === id) {
-      setActiveId(nextNotes[0]?.id || "");
-    }
+    await reloadNotes(viewMode === "trash" ? "trash" : "active");
   }
 
   async function handleTogglePin(id: string) {
     await saveActive({ skipClean: true });
     const updated = await window.suiji.togglePinNote(id);
     setNotes((current) => sortNotes([updated, ...current.filter((note) => note.id !== updated.id)]));
+  }
+
+  async function handleToggleFavorite(id: string) {
+    await saveActive({ skipClean: true });
+    const updated = await window.suiji.toggleFavoriteNote(id);
+    setNotes((current) => sortNotes([updated, ...current.filter((note) => note.id !== updated.id)]));
+  }
+
+  async function handleToggleArchive(id: string) {
+    await saveActive({ skipClean: true });
+    const updated = await window.suiji.toggleArchiveNote(id);
+    setNotes((current) => sortNotes([updated, ...current.filter((note) => note.id !== updated.id)]));
+    if (viewMode === "active" && updated.archivedAt) {
+      await reloadNotes("active");
+    }
+  }
+
+  async function handleRestoreNote(id: string) {
+    const restored = await window.suiji.restoreNote(id);
+    setNotes((current) => sortNotes([restored, ...current.filter((note) => note.id !== restored.id)]));
+    setActiveId(restored.id);
+    setViewMode("active");
+  }
+
+  async function handlePurgeNote(id: string) {
+    const note = notes.find((item) => item.id === id);
+    if (!note) return;
+    const ok = window.confirm(`永久删除「${note.title}」？此操作不可撤销。`);
+    if (!ok) return;
+    await window.suiji.purgeNote(id);
+    await reloadNotes("trash");
   }
 
   async function handleExport(format: ExportFormat) {
@@ -501,6 +597,7 @@ export default function App() {
         ...activeNote,
         title,
         tags: parseTagsInput(tagsDraft),
+        folder: normalizeFolderInput(folderDraft),
         content: editor.getJSON(),
         html: editor.getHTML(),
         plainText: editor.getText()
@@ -552,6 +649,7 @@ export default function App() {
     if (nextActive && editor) {
       setTitle(nextActive.title);
       setTagsDraft(nextActive.tags.join(", "));
+      setFolderDraft(nextActive.folder);
       editor.commands.setContent(nextActive.content, false);
       revisionRef.current = 0;
       setSaveState("saved");
@@ -562,6 +660,31 @@ export default function App() {
   async function handleOpenDataFolder() {
     const error = await window.suiji.openDataFolder();
     setDataActionStatus(error ? `打开失败：${error}` : "已打开本地数据目录");
+  }
+
+  async function handleOpenHistory() {
+    if (!activeNote) return;
+    setHistoryStatus("正在读取历史版本...");
+    setHistoryOpen(true);
+    const entries = await window.suiji.listNoteBackups(activeNote.id);
+    setHistoryEntries(entries);
+    setHistoryStatus(entries.length ? "" : "暂无可恢复的历史版本");
+  }
+
+  async function handleRestoreHistory(entry: BackupEntry) {
+    if (!activeNote) return;
+    const ok = window.confirm("恢复到这个历史版本？当前版本会先保存到备份。");
+    if (!ok) return;
+    const restored = await window.suiji.restoreNoteBackup(activeNote.id, entry.fileName);
+    setNotes((current) => sortNotes([restored, ...current.filter((note) => note.id !== restored.id)]));
+    setActiveId(restored.id);
+    setTitle(restored.title);
+    setTagsDraft(restored.tags.join(", "));
+    setFolderDraft(restored.folder);
+    editor?.commands.setContent(restored.content, false);
+    revisionRef.current = 0;
+    setSaveState("saved");
+    setHistoryOpen(false);
   }
 
   async function handleUnlock() {
@@ -671,6 +794,55 @@ export default function App() {
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索记录" />
         </div>
 
+        <div className="view-switch" aria-label="记录视图">
+          {[
+            ["active", "记录", List],
+            ["favorites", "收藏", Star],
+            ["archive", "归档", Archive],
+            ["trash", "回收站", Trash2],
+            ["recent", "最近", Clock]
+          ].map(([mode, label, Icon]) => (
+            <button
+              key={String(mode)}
+              type="button"
+              className={viewMode === mode ? "is-active" : ""}
+              onClick={() => {
+                const nextMode = mode as ViewMode;
+                setViewMode(nextMode);
+                const next = firstVisibleNote(notes, nextMode);
+                if (next) setActiveId(next.id);
+              }}
+            >
+              <Icon size={14} />
+              {String(label)}
+            </button>
+          ))}
+        </div>
+
+        {allFolders.length > 0 ? (
+          <div className="folder-filter" aria-label="文件夹筛选">
+            <button
+              type="button"
+              className={selectedFolder ? "" : "is-active"}
+              onClick={() => setSelectedFolder("")}
+            >
+              <Folder size={13} />
+              全部文件夹
+            </button>
+            {allFolders.map((folder) => (
+              <button
+                key={folder}
+                type="button"
+                className={selectedFolder === folder ? "is-active" : ""}
+                onClick={() => setSelectedFolder(folder)}
+              >
+                <Folder size={13} />
+                {folder}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         {allTags.length > 0 ? (
           <div className="tag-filter" aria-label="标签筛选">
             <button
@@ -697,6 +869,22 @@ export default function App() {
           <Plus size={18} />
           新记录
         </button>
+
+        {viewMode === "recent" ? (
+          <div className="recent-timeline" aria-label="最近编辑时间线">
+            {recentNotes.map((note) => (
+              <button
+                key={note.id}
+                type="button"
+                className={note.id === activeId ? "is-active" : ""}
+                onClick={() => void handleSelectNote(note.id)}
+              >
+                <span>{formatTime(note.updatedAt)}</span>
+                <strong>{note.title}</strong>
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         <nav className="note-list">
           {filteredNotes.map((note) => (
@@ -734,10 +922,62 @@ export default function App() {
                   >
                     {note.pinnedAt ? <PinOff size={14} /> : <Pin size={14} />}
                   </button>
+                  {note.trashedAt ? (
+                    <>
+                      <button
+                        type="button"
+                        title="恢复记录"
+                        aria-label="恢复记录"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleRestoreNote(note.id);
+                        }}
+                      >
+                        <ArchiveRestore size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        title="永久删除"
+                        aria-label="永久删除"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handlePurgeNote(note.id);
+                        }}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        title={note.favoriteAt ? "取消收藏" : "收藏"}
+                        aria-label={note.favoriteAt ? "取消收藏" : "收藏"}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleToggleFavorite(note.id);
+                        }}
+                      >
+                        {note.favoriteAt ? <StarOff size={14} /> : <Star size={14} />}
+                      </button>
+                      <button
+                        type="button"
+                        title={note.archivedAt ? "取消归档" : "归档"}
+                        aria-label={note.archivedAt ? "取消归档" : "归档"}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleToggleArchive(note.id);
+                        }}
+                      >
+                        {note.archivedAt ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
-                    title="删除记录"
-                    aria-label="删除记录"
+                    title="移到回收站"
+                    aria-label="移到回收站"
+                    disabled={Boolean(note.trashedAt)}
                     onClick={(event) => {
                       event.stopPropagation();
                       void handleDeleteNote(note.id);
@@ -747,6 +987,7 @@ export default function App() {
                   </button>
                 </div>
               </div>
+              {note.folder ? <span className="note-folder"><Folder size={12} />{note.folder}</span> : null}
               {note.tags.length > 0 ? (
                 <div className="note-tags">
                   {note.tags.slice(0, 3).map((tag) => (
@@ -784,9 +1025,43 @@ export default function App() {
               }}
               placeholder="标签，用逗号分隔"
             />
+            <input
+              className="folder-input"
+              value={folderDraft}
+              onChange={(event) => {
+                setFolderDraft(event.target.value);
+                markDirty();
+              }}
+              placeholder="文件夹"
+            />
           </div>
           <div className="topbar-actions">
             <span className={`save-status ${saveState}`}>{statusText}</span>
+            {activeNote && !activeNote.trashedAt ? (
+              <>
+                <button
+                  className={activeNote.favoriteAt ? "icon-button is-active" : "icon-button"}
+                  title={activeNote.favoriteAt ? "取消收藏" : "收藏"}
+                  aria-label={activeNote.favoriteAt ? "取消收藏" : "收藏"}
+                  onClick={() => void handleToggleFavorite(activeNote.id)}
+                >
+                  {activeNote.favoriteAt ? <StarOff size={18} /> : <Star size={18} />}
+                </button>
+                <button
+                  className={activeNote.archivedAt ? "icon-button is-active" : "icon-button"}
+                  title={activeNote.archivedAt ? "取消归档" : "归档"}
+                  aria-label={activeNote.archivedAt ? "取消归档" : "归档"}
+                  onClick={() => void handleToggleArchive(activeNote.id)}
+                >
+                  {activeNote.archivedAt ? <ArchiveRestore size={18} /> : <Archive size={18} />}
+                </button>
+              </>
+            ) : null}
+            {activeNote ? (
+              <button className="icon-button" title="版本历史" aria-label="版本历史" onClick={() => void handleOpenHistory()}>
+                <Clock size={18} />
+              </button>
+            ) : null}
             <button className="icon-button" title="立即保存" aria-label="立即保存" onClick={() => void saveActive()}>
               <Save size={18} />
             </button>
@@ -1112,6 +1387,33 @@ export default function App() {
               </button>
               <button type="button" className="primary" onClick={() => void handleSettingsSave()}>
                 保存
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {historyOpen ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setHistoryOpen(false)}>
+          <div className="modal history-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+            <h2>版本历史</h2>
+            {historyStatus ? <p className="history-status">{historyStatus}</p> : null}
+            <div className="history-list">
+              {historyEntries.map((entry) => (
+                <div key={entry.fileName} className="history-item">
+                  <div>
+                    <strong>{formatTime(entry.createdAt)}</strong>
+                    <span>{entry.prefix} · {Math.max(1, Math.round(entry.size / 1024))} KB</span>
+                  </div>
+                  <button type="button" onClick={() => void handleRestoreHistory(entry)}>
+                    恢复
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button type="button" onClick={() => setHistoryOpen(false)}>
+                关闭
               </button>
             </div>
           </div>

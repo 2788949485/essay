@@ -16,6 +16,7 @@ import path from "node:path";
 import { toMarkdown } from "../shared/markdown.js";
 import type {
   AppSettings,
+  BackupEntry,
   ExportPayload,
   NoteRecord,
   NotesBackup,
@@ -27,6 +28,7 @@ const DEFAULT_HOTKEY = "CommandOrControl+Alt+J";
 const NOTE_ID_PATTERN = /^[a-f0-9-]{36}$/i;
 const MAX_TEXT_FIELD_LENGTH = 500_000;
 const MAX_PIN_LENGTH = 128;
+const MAX_FOLDER_LENGTH = 40;
 const EDIT_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
 const ALLOWED_EXPORT_FORMATS = new Set(["html", "json", "txt", "md"]);
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
@@ -214,6 +216,10 @@ function normalizeTags(value: unknown) {
   ).slice(0, 12);
 }
 
+function normalizeFolder(value: unknown) {
+  return coerceString(value, "", MAX_FOLDER_LENGTH).replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").trim();
+}
+
 function validateExternalUrl(value: string) {
   try {
     const url = new URL(value);
@@ -272,6 +278,10 @@ function sanitizeNotePayload(raw: unknown): NoteRecord {
     title: coerceString(note.title, "未命名记录", 300),
     excerpt: coerceString(note.excerpt, "", 500),
     tags: normalizeTags(note.tags),
+    folder: normalizeFolder(note.folder),
+    favoriteAt: typeof note.favoriteAt === "string" ? note.favoriteAt : null,
+    archivedAt: typeof note.archivedAt === "string" ? note.archivedAt : null,
+    trashedAt: typeof note.trashedAt === "string" ? note.trashedAt : null,
     pinnedAt: typeof note.pinnedAt === "string" ? note.pinnedAt : null,
     content: note.content && typeof note.content === "object" ? note.content : emptyDoc,
     html: coerceString(note.html),
@@ -301,6 +311,17 @@ function parseBackupNotes(raw: unknown): unknown[] {
     return (raw as Partial<NotesBackup>).notes ?? [];
   }
   throw new Error("Invalid backup file");
+}
+
+function parseBackupEntryName(fileName: string, id: string, size: number, fallbackDate: Date): BackupEntry | null {
+  if (!fileName.endsWith(`-${id}.json`)) return null;
+  const match = fileName.match(/^(.+?)-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)-[a-f0-9-]{36}\.json$/i);
+  return {
+    fileName,
+    prefix: match?.[1] ?? "backup",
+    createdAt: match?.[2]?.replace(/T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/, "T$1:$2:$3.$4Z") ?? fallbackDate.toISOString(),
+    size
+  };
 }
 
 function escapeHtml(value: string) {
@@ -673,6 +694,10 @@ function normalizeNote(raw: Partial<NoteRecord>): NoteRecord {
     title: typeof raw.title === "string" && raw.title.trim() ? raw.title.trim() : "未命名记录",
     excerpt: typeof raw.excerpt === "string" ? raw.excerpt : "",
     tags: normalizeTags(raw.tags),
+    folder: normalizeFolder(raw.folder),
+    favoriteAt: typeof raw.favoriteAt === "string" ? raw.favoriteAt : null,
+    archivedAt: typeof raw.archivedAt === "string" ? raw.archivedAt : null,
+    trashedAt: typeof raw.trashedAt === "string" ? raw.trashedAt : null,
     pinnedAt: typeof raw.pinnedAt === "string" ? raw.pinnedAt : null,
     content: raw.content ?? emptyDoc,
     html: typeof raw.html === "string" ? raw.html : "",
@@ -878,6 +903,30 @@ async function togglePinNote(id: string): Promise<NoteRecord> {
   return next;
 }
 
+async function toggleFavoriteNote(id: string): Promise<NoteRecord> {
+  const note = await readNote(id);
+  const next = normalizeNote({
+    ...note,
+    favoriteAt: note.favoriteAt ? null : new Date().toISOString()
+  });
+  await backupExistingNote(next.id);
+  await atomicWriteFile(notePath(next.id), JSON.stringify(next, null, 2));
+  void pruneBackups();
+  return next;
+}
+
+async function toggleArchiveNote(id: string): Promise<NoteRecord> {
+  const note = await readNote(id);
+  const next = normalizeNote({
+    ...note,
+    archivedAt: note.archivedAt ? null : new Date().toISOString()
+  });
+  await backupExistingNote(next.id);
+  await atomicWriteFile(notePath(next.id), JSON.stringify(next, null, 2));
+  void pruneBackups();
+  return next;
+}
+
 async function createNote(): Promise<NoteRecord> {
   const now = new Date().toISOString();
   const note = normalizeNote({
@@ -892,9 +941,71 @@ async function createNote(): Promise<NoteRecord> {
 }
 
 async function deleteNote(id: string) {
+  const note = await readNote(id);
+  const next = normalizeNote({
+    ...note,
+    trashedAt: new Date().toISOString()
+  });
   await backupExistingNote(id, "deleted");
+  await atomicWriteFile(notePath(id), JSON.stringify(next, null, 2));
+  void pruneBackups();
+}
+
+async function restoreNote(id: string): Promise<NoteRecord> {
+  const note = await readNote(id);
+  const next = normalizeNote({
+    ...note,
+    trashedAt: null
+  });
+  await backupExistingNote(id, "restore-trash");
+  await atomicWriteFile(notePath(id), JSON.stringify(next, null, 2));
+  void pruneBackups();
+  return next;
+}
+
+async function purgeNote(id: string) {
+  await backupExistingNote(id, "purged");
   await fs.rm(notePath(id), { force: true });
   void pruneBackups();
+}
+
+async function listNoteBackups(id: string): Promise<BackupEntry[]> {
+  assertNoteId(id);
+  const entries = await fs.readdir(backupsDir, { withFileTypes: true }).catch(() => []);
+  const backups = await Promise.all(
+    entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(`-${id}.json`))
+      .map(async (entry) => {
+        const stat = await fs.stat(path.join(backupsDir, entry.name));
+        return parseBackupEntryName(entry.name, id, stat.size, stat.mtime);
+      })
+  );
+  return backups
+    .filter((entry): entry is BackupEntry => Boolean(entry))
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+}
+
+async function restoreNoteBackup(id: string, fileName: string): Promise<NoteRecord> {
+  assertNoteId(id);
+  const safeName = path.basename(fileName);
+  if (safeName !== fileName || !safeName.endsWith(`-${id}.json`)) {
+    throw new Error("Invalid backup file");
+  }
+
+  const raw = await fs.readFile(path.join(backupsDir, safeName), "utf8");
+  const note = sanitizeNotePayload(JSON.parse(raw));
+  if (note.id !== id) {
+    throw new Error("Backup note id mismatch");
+  }
+
+  await backupExistingNote(id, "version-restore");
+  const restored = normalizeNote({
+    ...note,
+    updatedAt: new Date().toISOString()
+  });
+  await atomicWriteFile(notePath(id), JSON.stringify(restored, null, 2));
+  void pruneBackups();
+  return restored;
 }
 
 function setupWebContentsGuards(window: BrowserWindow) {
@@ -1117,7 +1228,15 @@ function registerIpc() {
   ipcMain.handle("notes:create", createNote);
   ipcMain.handle("notes:save", (_event, note: NoteRecord) => saveNote(note));
   ipcMain.handle("notes:toggle-pin", (_event, id: string) => togglePinNote(id));
+  ipcMain.handle("notes:toggle-favorite", (_event, id: string) => toggleFavoriteNote(id));
+  ipcMain.handle("notes:toggle-archive", (_event, id: string) => toggleArchiveNote(id));
   ipcMain.handle("notes:delete", (_event, id: string) => deleteNote(id));
+  ipcMain.handle("notes:restore", (_event, id: string) => restoreNote(id));
+  ipcMain.handle("notes:purge", (_event, id: string) => purgeNote(id));
+  ipcMain.handle("notes:list-backups", (_event, id: string) => listNoteBackups(id));
+  ipcMain.handle("notes:restore-backup-version", (_event, id: string, fileName: string) =>
+    restoreNoteBackup(id, fileName)
+  );
   ipcMain.handle("notes:backup-all", exportAllNotesBackup);
   ipcMain.handle("notes:restore-backup", restoreNotesBackup);
   ipcMain.handle("notes:export", async (_event, rawPayload: ExportPayload) => {
