@@ -11,6 +11,7 @@ import type {
 
 const api = {
   listNotes: () => ipcRenderer.invoke("notes:list") as Promise<NoteRecord[]>,
+  searchNotes: (query: string) => ipcRenderer.invoke("notes:search", query) as Promise<string[]>,
   createNote: () => ipcRenderer.invoke("notes:create") as Promise<NoteRecord>,
   saveNote: (note: NoteRecord) => ipcRenderer.invoke("notes:save", note) as Promise<NoteRecord>,
   togglePinNote: (id: string) => ipcRenderer.invoke("notes:toggle-pin", id) as Promise<NoteRecord>,

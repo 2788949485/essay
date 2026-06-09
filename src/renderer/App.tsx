@@ -272,13 +272,17 @@ export default function App() {
   const [replaceValue, setReplaceValue] = useState("");
   const [findMatches, setFindMatches] = useState<FindMatch[]>([]);
   const [findIndex, setFindIndex] = useState(0);
+  const [ftsMatchedIds, setFtsMatchedIds] = useState<string[] | null>(null);
   const [dataActionStatus, setDataActionStatus] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyEntries, setHistoryEntries] = useState<BackupEntry[]>([]);
   const [historyStatus, setHistoryStatus] = useState("");
   const [outlineItems, setOutlineItems] = useState<OutlineItem[]>([]);
+  const [outlineCollapsed, setOutlineCollapsed] = useState(false);
   const [editorText, setEditorText] = useState("");
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const editorWrapRef = useRef<HTMLDivElement | null>(null);
+  const outlineTimerRef = useRef<number | null>(null);
   const activeIdRef = useRef("");
   const revisionRef = useRef(0);
   const saveStateRef = useRef<SaveState>("idle");
@@ -335,7 +339,11 @@ export default function App() {
     onUpdate: ({ editor }) => {
       markDirty();
       setEditorText(editor.getText());
-      setOutlineItems(extractOutline(editor));
+      if (outlineTimerRef.current) window.clearTimeout(outlineTimerRef.current);
+      outlineTimerRef.current = window.setTimeout(() => {
+        setOutlineItems(extractOutline(editor));
+        outlineTimerRef.current = null;
+      }, 250);
     }
   });
 
@@ -355,6 +363,12 @@ export default function App() {
   useEffect(() => {
     void loadNotes();
   }, [loadNotes]);
+
+  useEffect(() => {
+    return () => {
+      if (outlineTimerRef.current) window.clearTimeout(outlineTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     activeIdRef.current = activeId;
@@ -461,6 +475,26 @@ export default function App() {
     return () => window.removeEventListener("paste", onPaste);
   }, [editor]);
 
+  useEffect(() => {
+    const keyword = parseSearchSyntax(query).text;
+    if (!keyword) {
+      setFtsMatchedIds(null);
+      return;
+    }
+
+    let canceled = false;
+    const timer = window.setTimeout(() => {
+      void window.suiji.searchNotes(keyword).then((ids) => {
+        if (!canceled) setFtsMatchedIds(ids);
+      });
+    }, 120);
+
+    return () => {
+      canceled = true;
+      window.clearTimeout(timer);
+    };
+  }, [query]);
+
   const saveActive = useCallback(async (options?: { skipClean?: boolean }) => {
     if (!editor || !activeNote) return;
     if (options?.skipClean && saveStateRef.current !== "dirty") {
@@ -516,6 +550,7 @@ export default function App() {
 
   const searchSyntax = useMemo(() => parseSearchSyntax(query), [query]);
   const searchKeyword = searchSyntax.text;
+  const ftsMatchedIdSet = useMemo(() => (ftsMatchedIds ? new Set(ftsMatchedIds) : null), [ftsMatchedIds]);
   const editorStats = useMemo(() => {
     const compact = editorText.replace(/\s+/g, "");
     const chars = Array.from(compact).length;
@@ -552,16 +587,16 @@ export default function App() {
       }
       const matchesTag = !selectedTag || note.tags.includes(selectedTag);
       const matchesFolder = !selectedFolder || note.folder === selectedFolder;
-      const matchesKeyword =
-        !keyword ||
+      const localMatchesKeyword =
         note.title.toLowerCase().includes(keyword) ||
         note.excerpt.toLowerCase().includes(keyword) ||
         note.plainText.toLowerCase().includes(keyword) ||
         note.tags.some((tag) => tag.toLowerCase().includes(keyword)) ||
         note.folder.toLowerCase().includes(keyword);
+      const matchesKeyword = !keyword || (ftsMatchedIdSet ? ftsMatchedIdSet.has(note.id) : localMatchesKeyword);
       return matchesTag && matchesFolder && matchesKeyword;
     });
-  }, [notes, searchSyntax, selectedFolder, selectedTag, viewMode]);
+  }, [ftsMatchedIdSet, notes, searchSyntax, selectedFolder, selectedTag, viewMode]);
 
   const allTags = useMemo(() => {
     return Array.from(new Set(notes.filter((note) => !note.trashedAt).flatMap((note) => note.tags))).sort((a, b) =>
@@ -828,7 +863,16 @@ export default function App() {
 
   function jumpToOutline(item: OutlineItem) {
     if (!editor) return;
-    editor.chain().focus().setTextSelection(item.pos + 1).run();
+    const targetPos = Math.min(item.pos + 1, editor.state.doc.content.size);
+    editor.chain().focus().setTextSelection(targetPos).scrollIntoView().run();
+    window.requestAnimationFrame(() => {
+      const wrap = editorWrapRef.current;
+      if (!wrap) return;
+      const coords = editor.view.coordsAtPos(targetPos);
+      const wrapRect = wrap.getBoundingClientRect();
+      const top = coords.top - wrapRect.top + wrap.scrollTop - 24;
+      wrap.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    });
   }
 
   async function handleSettingsSave() {
@@ -1191,7 +1235,9 @@ export default function App() {
               <div className="note-item-header">
                 <span className="note-title">
                   {note.pinnedAt ? <Pin size={13} className="note-pin-mark" /> : null}
-                  <HighlightedText text={note.title} keyword={searchKeyword} />
+                  <span className="note-title-text">
+                    <HighlightedText text={note.title} keyword={searchKeyword} />
+                  </span>
                 </span>
                 <div className="note-actions">
                   <button
@@ -1270,11 +1316,16 @@ export default function App() {
                   </button>
                 </div>
               </div>
-              {note.folder ? <span className="note-folder"><Folder size={12} />{note.folder}</span> : null}
-              {note.tags.length > 0 ? (
-                <div className="note-tags">
-                  {note.tags.slice(0, 3).map((tag) => (
-                    <span key={tag}>
+              {note.folder || note.tags.length > 0 ? (
+                <div className="note-meta">
+                  {note.folder ? (
+                    <span className="note-folder">
+                      <Folder size={12} />
+                      {note.folder}
+                    </span>
+                  ) : null}
+                  {note.tags.slice(0, 2).map((tag) => (
+                    <span key={tag} className="note-tag">
                       <HighlightedText text={tag} keyword={searchKeyword} />
                     </span>
                   ))}
@@ -1670,6 +1721,7 @@ export default function App() {
         ) : null}
 
         <div
+          ref={editorWrapRef}
           className="editor-wrap"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
@@ -1682,18 +1734,34 @@ export default function App() {
           {editor ? <EditorContent editor={editor} /> : null}
         </div>
         {outlineItems.length > 0 ? (
-          <aside className="outline-panel" aria-label="大纲目录">
-            <strong>大纲</strong>
-            {outlineItems.map((item, index) => (
+          <aside className={outlineCollapsed ? "outline-panel is-collapsed" : "outline-panel"} aria-label="大纲目录">
+            <div className="outline-header">
+              <strong>大纲</strong>
               <button
-                key={`${item.pos}-${index}`}
                 type="button"
-                className={`outline-level-${item.level}`}
-                onClick={() => jumpToOutline(item)}
+                className="outline-toggle"
+                title={outlineCollapsed ? "展开大纲" : "收起大纲"}
+                aria-label={outlineCollapsed ? "展开大纲" : "收起大纲"}
+                aria-expanded={!outlineCollapsed}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setOutlineCollapsed((current) => !current)}
               >
-                {item.text}
+                <ChevronDown size={14} />
               </button>
-            ))}
+            </div>
+            {!outlineCollapsed
+              ? outlineItems.map((item, index) => (
+                  <button
+                    key={`${item.pos}-${index}`}
+                    type="button"
+                    className={`outline-level-${item.level}`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => jumpToOutline(item)}
+                  >
+                    {item.text}
+                  </button>
+                ))
+              : null}
           </aside>
         ) : null}
       </section>

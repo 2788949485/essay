@@ -35,6 +35,7 @@ const MAX_FOLDER_LENGTH = 40;
 const EDIT_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
 const ALLOWED_EXPORT_FORMATS = new Set(["html", "json", "txt", "md"]);
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
+const DB_FLUSH_DELAY_MS = 900;
 
 type StoredSettings = Omit<AppSettings, "hasPrivacyPin"> & {
   privacyPinHash: string | null;
@@ -58,10 +59,19 @@ const DEFAULT_SETTINGS: StoredSettings = {
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let isQuitting = false;
+let isFlushingBeforeQuit = false;
 let dataRootDir = "";
 let notesDir = "";
 let backupsDir = "";
 let settingsPath = "";
+let databasePath = "";
+let databaseVirtualPath = "";
+let sqliteRuntimePromise: Promise<any> | null = null;
+let sqliteRuntime: any = null;
+let notesDb: any = null;
+let notesDbDirty = false;
+let notesDbFlushTimer: NodeJS.Timeout | null = null;
+let notesDbPersistQueue: Promise<void> = Promise.resolve();
 
 type StorageConfig = {
   dataRoot?: string;
@@ -119,8 +129,11 @@ async function ensureStorage() {
   notesDir = path.join(dataRoot, "notes");
   backupsDir = path.join(dataRoot, "backups");
   settingsPath = path.join(dataRoot, "settings.json");
+  databasePath = path.join(dataRoot, "suiji.db");
+  databaseVirtualPath = `/suiji-${createHash("sha1").update(dataRoot).digest("hex").slice(0, 16)}-${Date.now()}.db`;
   await fs.mkdir(notesDir, { recursive: true });
   await fs.mkdir(backupsDir, { recursive: true });
+  await initializeNotesDatabase();
 }
 
 function assertNoteId(id: string) {
@@ -181,9 +194,21 @@ async function atomicWriteFile(filePath: string, content: string) {
   }
 }
 
+async function atomicWriteBytes(filePath: string, content: Uint8Array) {
+  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    await fs.writeFile(tmpPath, content);
+    await fs.rename(tmpPath, filePath);
+  } catch (error) {
+    await fs.rm(tmpPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
 async function backupExistingNote(id: string, prefix = "note") {
   try {
-    await fs.copyFile(notePath(id), backupPath(prefix, id));
+    const note = await readNote(id);
+    await atomicWriteFile(backupPath(prefix, id), JSON.stringify(note, null, 2));
   } catch {
     // No backup is needed when the note does not exist yet.
   }
@@ -855,6 +880,265 @@ function normalizeNote(raw: Partial<NoteRecord>): NoteRecord {
   };
 }
 
+type NoteDbRow = {
+  id: string;
+  title: string;
+  excerpt: string;
+  tags_json: string;
+  folder: string;
+  favorite_at: string | null;
+  archived_at: string | null;
+  trashed_at: string | null;
+  pinned_at: string | null;
+  content_json: string;
+  html: string;
+  plain_text: string;
+  created_at: string;
+  updated_at: string;
+};
+
+function noteToDbParams(note: NoteRecord) {
+  return [
+    note.id,
+    note.title,
+    note.excerpt,
+    JSON.stringify(note.tags),
+    note.folder,
+    note.favoriteAt,
+    note.archivedAt,
+    note.trashedAt,
+    note.pinnedAt,
+    JSON.stringify(note.content),
+    note.html,
+    note.plainText,
+    note.createdAt,
+    note.updatedAt
+  ];
+}
+
+function noteFromDbRow(row: NoteDbRow): NoteRecord {
+  return normalizeNote({
+    id: row.id,
+    title: row.title,
+    excerpt: row.excerpt,
+    tags: JSON.parse(row.tags_json || "[]"),
+    folder: row.folder,
+    favoriteAt: row.favorite_at,
+    archivedAt: row.archived_at,
+    trashedAt: row.trashed_at,
+    pinnedAt: row.pinned_at,
+    content: JSON.parse(row.content_json || JSON.stringify(emptyDoc)),
+    html: row.html,
+    plainText: row.plain_text,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  });
+}
+
+async function loadSqliteRuntime() {
+  if (!sqliteRuntimePromise) {
+    sqliteRuntimePromise = (async () => {
+      const dynamicImport = new Function("specifier", "return import(specifier)") as (
+        specifier: string
+      ) => Promise<any>;
+      const module = await dynamicImport("@sqlite.org/sqlite-wasm");
+      const initSqlite = module.default ?? module;
+      return initSqlite({
+        print: () => undefined,
+        printErr: () => undefined
+      });
+    })();
+  }
+  sqliteRuntime = await sqliteRuntimePromise;
+  return sqliteRuntime;
+}
+
+function dbExec(sql: string, bind: unknown[] = []) {
+  notesDb.exec({ sql, bind });
+}
+
+function dbRows<T>(sql: string, bind: unknown[] = []) {
+  const rows: T[] = [];
+  notesDb.exec({
+    sql,
+    bind,
+    rowMode: "object",
+    callback: (row: T) => {
+      rows.push(row);
+    }
+  });
+  return rows;
+}
+
+function dbValue<T>(sql: string, bind: unknown[] = []) {
+  let value: T | undefined;
+  notesDb.exec({
+    sql,
+    bind,
+    rowMode: "array",
+    callback: (row: T[]) => {
+      value = row[0];
+    }
+  });
+  return value;
+}
+
+async function persistNotesDatabase() {
+  if (!sqliteRuntime || !notesDb) return;
+  if (notesDbFlushTimer) {
+    clearTimeout(notesDbFlushTimer);
+    notesDbFlushTimer = null;
+  }
+  if (!notesDbDirty) return notesDbPersistQueue;
+  const task = notesDbPersistQueue.then(async () => {
+    if (!notesDbDirty || !sqliteRuntime || !notesDb) return;
+    notesDbDirty = false;
+    const bytes = sqliteRuntime.capi.sqlite3_js_db_export(notesDb);
+    await atomicWriteBytes(databasePath, bytes);
+  });
+  notesDbPersistQueue = task.then(
+    () => undefined,
+    () => undefined
+  );
+  return task;
+}
+
+function scheduleNotesDatabasePersist() {
+  notesDbDirty = true;
+  if (notesDbFlushTimer) clearTimeout(notesDbFlushTimer);
+  notesDbFlushTimer = setTimeout(() => {
+    notesDbFlushTimer = null;
+    void persistNotesDatabase();
+  }, DB_FLUSH_DELAY_MS);
+}
+
+function ensureNotesSchema() {
+  dbExec(`
+    PRAGMA journal_mode=MEMORY;
+    CREATE TABLE IF NOT EXISTS notes (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      excerpt TEXT NOT NULL,
+      tags_json TEXT NOT NULL,
+      folder TEXT NOT NULL,
+      favorite_at TEXT,
+      archived_at TEXT,
+      trashed_at TEXT,
+      pinned_at TEXT,
+      content_json TEXT NOT NULL,
+      html TEXT NOT NULL,
+      plain_text TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_notes_updated_at ON notes(updated_at);
+    CREATE INDEX IF NOT EXISTS idx_notes_pinned_at ON notes(pinned_at);
+    CREATE INDEX IF NOT EXISTS idx_notes_folder ON notes(folder);
+    CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+      id UNINDEXED,
+      title,
+      excerpt,
+      tags,
+      folder,
+      plain_text
+    );
+  `);
+}
+
+function upsertNoteInDatabase(note: NoteRecord) {
+  dbExec(
+    `
+      INSERT INTO notes (
+        id, title, excerpt, tags_json, folder, favorite_at, archived_at, trashed_at,
+        pinned_at, content_json, html, plain_text, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        excerpt = excluded.excerpt,
+        tags_json = excluded.tags_json,
+        folder = excluded.folder,
+        favorite_at = excluded.favorite_at,
+        archived_at = excluded.archived_at,
+        trashed_at = excluded.trashed_at,
+        pinned_at = excluded.pinned_at,
+        content_json = excluded.content_json,
+        html = excluded.html,
+        plain_text = excluded.plain_text,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at
+    `,
+    noteToDbParams(note)
+  );
+  dbExec("DELETE FROM notes_fts WHERE id = ?", [note.id]);
+  dbExec("INSERT INTO notes_fts(id, title, excerpt, tags, folder, plain_text) VALUES (?, ?, ?, ?, ?, ?)", [
+    note.id,
+    note.title,
+    note.excerpt,
+    note.tags.join(" "),
+    note.folder,
+    note.plainText
+  ]);
+}
+
+async function migrateJsonNotesToDatabaseIfNeeded() {
+  const count = dbValue<number>("SELECT COUNT(*) FROM notes") ?? 0;
+  if (count > 0) return;
+
+  const files = await fs.readdir(notesDir).catch(() => []);
+  const noteFiles = files.filter((file) => file.endsWith(".json") && NOTE_ID_PATTERN.test(path.basename(file, ".json")));
+  if (noteFiles.length === 0) return;
+
+  const corruptDir = path.join(notesDir, "corrupt");
+  dbExec("BEGIN");
+  try {
+    for (const file of noteFiles) {
+      const filePath = path.join(notesDir, file);
+      try {
+        const raw = await fs.readFile(filePath, "utf8");
+        const note = normalizeNote(JSON.parse(raw));
+        upsertNoteInDatabase(note);
+      } catch {
+        await fs.mkdir(corruptDir, { recursive: true });
+        await fs.rename(filePath, path.join(corruptDir, `${Date.now()}-${file}`)).catch(() => undefined);
+      }
+    }
+    dbExec("COMMIT");
+  } catch (error) {
+    dbExec("ROLLBACK");
+    throw error;
+  }
+  notesDbDirty = true;
+  await persistNotesDatabase();
+}
+
+async function initializeNotesDatabase() {
+  if (notesDb) {
+    notesDb.close();
+    notesDb = null;
+  }
+
+  const sqlite3 = await loadSqliteRuntime();
+  try {
+    const bytes = await fs.readFile(databasePath);
+    sqlite3.capi.sqlite3_js_posix_create_file(databaseVirtualPath, bytes);
+  } catch {
+    // A missing database file means this is the first launch for the data directory.
+  }
+
+  notesDb = new sqlite3.oo1.DB(databaseVirtualPath, "c");
+  sqlite3.capi.sqlite3_trace_v2(notesDb.pointer, 0, 0, 0);
+  ensureNotesSchema();
+  await migrateJsonNotesToDatabaseIfNeeded();
+  notesDbDirty = true;
+  await persistNotesDatabase();
+}
+
+async function writeNoteToDatabase(note: NoteRecord, persist = true) {
+  upsertNoteInDatabase(note);
+  if (persist) scheduleNotesDatabasePersist();
+}
+
 async function readStoredSettings(): Promise<StoredSettings> {
   try {
     const raw = await fs.readFile(settingsPath, "utf8");
@@ -907,26 +1191,35 @@ async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<App
 }
 
 async function listNotes(): Promise<NoteRecord[]> {
-  const files = await fs.readdir(notesDir);
-  const notes: NoteRecord[] = [];
-  const corruptDir = path.join(notesDir, "corrupt");
-
-  await Promise.all(
-    files
-      .filter((file) => file.endsWith(".json") && NOTE_ID_PATTERN.test(path.basename(file, ".json")))
-      .map(async (file) => {
-        const filePath = path.join(notesDir, file);
-        try {
-          const raw = await fs.readFile(filePath, "utf8");
-          notes.push(normalizeNote(JSON.parse(raw)));
-        } catch {
-          await fs.mkdir(corruptDir, { recursive: true });
-          await fs.rename(filePath, path.join(corruptDir, `${Date.now()}-${file}`)).catch(() => undefined);
-        }
-      })
-  );
-
+  const notes = dbRows<NoteDbRow>(
+    `SELECT
+      id, title, excerpt, tags_json, folder, favorite_at, archived_at, trashed_at,
+      pinned_at, content_json, html, plain_text, created_at, updated_at
+    FROM notes`
+  ).map(noteFromDbRow);
   return sortNotes(notes);
+}
+
+function buildFtsQuery(query: string) {
+  return query
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((token) => `"${token.replace(/"/g, '""')}"`)
+    .join(" AND ");
+}
+
+async function searchNoteIds(query: string): Promise<string[]> {
+  const ftsQuery = buildFtsQuery(coerceString(query, "", 500));
+  if (!ftsQuery) return [];
+  try {
+    return dbRows<{ id: string }>(
+      "SELECT id FROM notes_fts WHERE notes_fts MATCH ? ORDER BY bm25(notes_fts) LIMIT 1000",
+      [ftsQuery]
+    ).map((row) => row.id);
+  } catch {
+    return [];
+  }
 }
 
 async function exportAllNotesBackup() {
@@ -1004,13 +1297,15 @@ async function restoreNotesBackup(): Promise<RestoreResult | null> {
     try {
       const note = sanitizeNotePayload(rawNote);
       await backupExistingNote(note.id, "restore");
-      await atomicWriteFile(notePath(note.id), JSON.stringify(note, null, 2));
+      await writeNoteToDatabase(note, false);
       imported += 1;
     } catch {
       skipped += 1;
     }
   }
 
+  notesDbDirty = true;
+  await persistNotesDatabase();
   void pruneBackups();
   return {
     total: backupNotes.length,
@@ -1039,14 +1334,23 @@ async function saveNote(rawNote: NoteRecord): Promise<NoteRecord> {
   });
 
   await backupExistingNoteIfStale(normalized.id);
-  await atomicWriteFile(notePath(normalized.id), JSON.stringify(normalized, null, 2));
+  await writeNoteToDatabase(normalized);
   void pruneBackups();
   return normalized;
 }
 
 async function readNote(id: string): Promise<NoteRecord> {
-  const raw = await fs.readFile(notePath(id), "utf8");
-  return normalizeNote(JSON.parse(raw));
+  assertNoteId(id);
+  const row = dbRows<NoteDbRow>(
+    `SELECT
+      id, title, excerpt, tags_json, folder, favorite_at, archived_at, trashed_at,
+      pinned_at, content_json, html, plain_text, created_at, updated_at
+    FROM notes
+    WHERE id = ?`,
+    [id]
+  )[0];
+  if (!row) throw new Error("Note not found");
+  return noteFromDbRow(row);
 }
 
 async function togglePinNote(id: string): Promise<NoteRecord> {
@@ -1056,7 +1360,7 @@ async function togglePinNote(id: string): Promise<NoteRecord> {
     pinnedAt: note.pinnedAt ? null : new Date().toISOString()
   });
   await backupExistingNote(next.id);
-  await atomicWriteFile(notePath(next.id), JSON.stringify(next, null, 2));
+  await writeNoteToDatabase(next);
   void pruneBackups();
   return next;
 }
@@ -1068,7 +1372,7 @@ async function toggleFavoriteNote(id: string): Promise<NoteRecord> {
     favoriteAt: note.favoriteAt ? null : new Date().toISOString()
   });
   await backupExistingNote(next.id);
-  await atomicWriteFile(notePath(next.id), JSON.stringify(next, null, 2));
+  await writeNoteToDatabase(next);
   void pruneBackups();
   return next;
 }
@@ -1080,7 +1384,7 @@ async function toggleArchiveNote(id: string): Promise<NoteRecord> {
     archivedAt: note.archivedAt ? null : new Date().toISOString()
   });
   await backupExistingNote(next.id);
-  await atomicWriteFile(notePath(next.id), JSON.stringify(next, null, 2));
+  await writeNoteToDatabase(next);
   void pruneBackups();
   return next;
 }
@@ -1094,7 +1398,7 @@ async function createNote(): Promise<NoteRecord> {
     createdAt: now,
     updatedAt: now
   });
-  await atomicWriteFile(notePath(note.id), JSON.stringify(note, null, 2));
+  await writeNoteToDatabase(note);
   return note;
 }
 
@@ -1110,7 +1414,7 @@ async function createNoteFromContent(title: string, plainText: string, content: 
     createdAt: now,
     updatedAt: now
   });
-  await atomicWriteFile(notePath(note.id), JSON.stringify(note, null, 2));
+  await writeNoteToDatabase(note);
   return note;
 }
 
@@ -1211,7 +1515,7 @@ async function deleteNote(id: string) {
     trashedAt: new Date().toISOString()
   });
   await backupExistingNote(id, "deleted");
-  await atomicWriteFile(notePath(id), JSON.stringify(next, null, 2));
+  await writeNoteToDatabase(next);
   void pruneBackups();
 }
 
@@ -1222,14 +1526,17 @@ async function restoreNote(id: string): Promise<NoteRecord> {
     trashedAt: null
   });
   await backupExistingNote(id, "restore-trash");
-  await atomicWriteFile(notePath(id), JSON.stringify(next, null, 2));
+  await writeNoteToDatabase(next);
   void pruneBackups();
   return next;
 }
 
 async function purgeNote(id: string) {
   await backupExistingNote(id, "purged");
-  await fs.rm(notePath(id), { force: true });
+  dbExec("DELETE FROM notes_fts WHERE id = ?", [id]);
+  dbExec("DELETE FROM notes WHERE id = ?", [id]);
+  notesDbDirty = true;
+  await persistNotesDatabase();
   void pruneBackups();
 }
 
@@ -1267,7 +1574,7 @@ async function restoreNoteBackup(id: string, fileName: string): Promise<NoteReco
     ...note,
     updatedAt: new Date().toISOString()
   });
-  await atomicWriteFile(notePath(id), JSON.stringify(restored, null, 2));
+  await writeNoteToDatabase(restored);
   void pruneBackups();
   return restored;
 }
@@ -1297,6 +1604,8 @@ async function migrateDataRoot(targetRoot: string) {
   }
 
   await fs.mkdir(resolvedTarget, { recursive: true });
+  await persistNotesDatabase();
+  await copyPathIfExists(path.join(sourceRoot, "suiji.db"), path.join(resolvedTarget, "suiji.db"));
   await copyPathIfExists(path.join(sourceRoot, "notes"), path.join(resolvedTarget, "notes"));
   await copyPathIfExists(path.join(sourceRoot, "backups"), path.join(resolvedTarget, "backups"));
   await copyPathIfExists(path.join(sourceRoot, "settings.json"), path.join(resolvedTarget, "settings.json"));
@@ -1342,6 +1651,10 @@ async function changeDataFolder() {
 }
 
 function setupWebContentsGuards(window: BrowserWindow) {
+  window.webContents.on("will-attach-webview", (event) => {
+    event.preventDefault();
+  });
+
   window.webContents.setWindowOpenHandler(({ url }) => {
     const externalUrl = validateExternalUrl(url);
     if (externalUrl) {
@@ -1363,6 +1676,8 @@ function setupWebContentsGuards(window: BrowserWindow) {
   window.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false);
   });
+
+  window.webContents.session.setPermissionCheckHandler(() => false);
 }
 
 function createWindow() {
@@ -1379,7 +1694,12 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      devTools: !app.isPackaged,
+      spellcheck: false,
+      backgroundThrottling: true
     }
   });
 
@@ -1388,13 +1708,13 @@ function createWindow() {
   mainWindow.on("close", (event) => {
     if (!isQuitting) {
       event.preventDefault();
-      void lockContentForPrivacy();
-      mainWindow?.hide();
+      hideWindow();
     }
   });
 
   mainWindow.on("minimize", () => {
     void lockContentForPrivacy();
+    void persistNotesDatabase();
   });
 
   const devServer = process.env.VITE_DEV_SERVER_URL;
@@ -1426,10 +1746,7 @@ function createApplicationMenu() {
         {
           label: "隐藏窗口",
           accelerator: "Escape",
-          click: () => {
-            void lockContentForPrivacy();
-            mainWindow?.hide();
-          }
+          click: hideWindow
         },
         {
           label: "退出",
@@ -1518,11 +1835,16 @@ function showWindow() {
   mainWindow.focus();
 }
 
+function hideWindow() {
+  void lockContentForPrivacy();
+  void persistNotesDatabase();
+  mainWindow?.hide();
+}
+
 function toggleWindow() {
   if (!mainWindow) return;
   if (mainWindow.isVisible() && mainWindow.isFocused()) {
-    void lockContentForPrivacy();
-    mainWindow.hide();
+    hideWindow();
     return;
   }
   showWindow();
@@ -1573,6 +1895,7 @@ function createTray(settings: AppSettings) {
 
 function registerIpc() {
   ipcMain.handle("notes:list", listNotes);
+  ipcMain.handle("notes:search", (_event, query: string) => searchNoteIds(query));
   ipcMain.handle("notes:create", createNote);
   ipcMain.handle("notes:save", (_event, note: NoteRecord) => saveNote(note));
   ipcMain.handle("notes:toggle-pin", (_event, id: string) => togglePinNote(id));
@@ -1671,8 +1994,7 @@ function registerIpc() {
   });
   ipcMain.handle("app:change-data-folder", changeDataFolder);
   ipcMain.handle("window:hide", () => {
-    void lockContentForPrivacy();
-    mainWindow?.hide();
+    hideWindow();
   });
 }
 
@@ -1707,8 +2029,25 @@ if (gotTheLock) {
     showWindow();
   });
 
+  app.on("before-quit", (event) => {
+    if (!notesDbDirty || isFlushingBeforeQuit) return;
+    event.preventDefault();
+    isFlushingBeforeQuit = true;
+    void persistNotesDatabase().finally(() => {
+      isQuitting = true;
+      app.quit();
+    });
+  });
+
   app.on("will-quit", () => {
     globalShortcut.unregisterAll();
+    if (notesDb) {
+      try {
+        notesDb.close();
+      } catch {
+        // Shutdown cleanup is best effort; pending writes are flushed in before-quit.
+      }
+    }
   });
 }
 

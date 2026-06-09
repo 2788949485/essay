@@ -1,6 +1,6 @@
 {
   "name": "suiji",
-  "version": "0.6.4",
+  "version": "0.7.3",
   "description": "随记 - 快捷呼出的本地自动保存富文本记录工具",
   "keywords": [
     "electron",
@@ -66,6 +66,7 @@
     }
   },
   "dependencies": {
+    "@sqlite.org/sqlite-wasm": "^3.53.0-build1",
     "@tiptap/extension-highlight": "^2.11.5",
     "@tiptap/extension-image": "^2.27.2",
     "@tiptap/extension-link": "^2.11.5",

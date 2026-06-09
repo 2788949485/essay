@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.3 - 2026-05-29
+
+- Added a collapsible outline panel so the directory can be folded away in small windows.
+- Improved long-title truncation in the editor header and sidebar note cards.
+- Compressed small-window header controls to reduce title clipping.
+
+## 0.7.2 - 2026-05-29
+
+- Tightened sidebar note-card layout for small windows so titles, actions, metadata, excerpts, and timestamps do not overlap or clip.
+
+## 0.7.1 - 2026-05-29
+
+- Batched SQLite database persistence to reduce full database export/write work during autosave bursts.
+- Forced database flushes when hiding, minimizing, changing data directories, and quitting.
+- Debounced outline regeneration during editing to reduce long-document typing overhead.
+- Tightened Electron renderer security settings, permission checks, webview blocking, and CSP directives.
+
+## 0.7.0 - 2026-05-28
+
+- Replaced per-note JSON file storage with a local SQLite database at `suiji.db`.
+- Added an FTS5 index for full-text note search and wired normal keyword search through it.
+- Added first-run migration from existing `notes/*.json` files into SQLite while keeping JSON backups for version history.
+
+## 0.6.5 - 2026-05-28
+
+- Fixed outline navigation so clicking a heading scrolls the editor to that heading reliably.
+
 ## 0.6.4 - 2026-05-28
 
 - Reworked the editor toolbar so typography controls live inside one cohesive "layout" menu.
