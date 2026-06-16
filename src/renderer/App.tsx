@@ -33,12 +33,12 @@ import {
   Heading2,
   Highlighter,
   ImagePlus,
+  Info,
   Italic,
   Link2,
   List,
   ListOrdered,
   Lock,
-  Minus,
   PanelLeftClose,
   PanelLeftOpen,
   Pin,
@@ -292,8 +292,11 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [hotkeyDraft, setHotkeyDraft] = useState("");
   const [hotkeyStatus, setHotkeyStatus] = useState("");
+  const [isFloatingToolViewport, setIsFloatingToolViewport] = useState(() => window.innerWidth < 1280);
+  const [isCompactViewport, setIsCompactViewport] = useState(() => window.innerWidth < 980);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 980);
   const [leftPaneMode, setLeftPaneMode] = useState<LeftPaneMode>("document");
+  const [formatPanelExpanded, setFormatPanelExpanded] = useState(() => window.innerWidth >= 1280);
   const [privacyLocked, setPrivacyLocked] = useState(false);
   const [privacyPinDraft, setPrivacyPinDraft] = useState("");
   const [clearPrivacyPin, setClearPrivacyPin] = useState(false);
@@ -424,6 +427,26 @@ export default function App() {
     return () => {
       if (outlineTimerRef.current) window.clearTimeout(outlineTimerRef.current);
     };
+  }, []);
+
+  useEffect(() => {
+    function syncResponsiveLayout() {
+      const floatingTools = window.innerWidth < 1280;
+      const compact = window.innerWidth < 980;
+      setIsFloatingToolViewport(floatingTools);
+      setIsCompactViewport(compact);
+      if (compact) {
+        setSidebarCollapsed(true);
+      }
+      if (floatingTools) {
+        setFormatPanelExpanded(false);
+      } else {
+        setFormatPanelExpanded(true);
+      }
+    }
+
+    window.addEventListener("resize", syncResponsiveLayout);
+    return () => window.removeEventListener("resize", syncResponsiveLayout);
   }, []);
 
   useEffect(() => {
@@ -852,11 +875,13 @@ export default function App() {
 
   async function handleSelectNote(id: string) {
     if (id === activeId) {
+      if (isCompactViewport) setSidebarCollapsed(true);
       focusEditorSoon();
       return;
     }
     await saveActive({ skipClean: true });
     setActiveId(id);
+    if (isCompactViewport) setSidebarCollapsed(true);
     focusEditorSoon();
   }
 
@@ -1864,10 +1889,25 @@ export default function App() {
             </div>
           </div>
 
-          <aside className="format-panel" aria-label="格式工具">
+          <aside
+            className={
+              isFloatingToolViewport
+                ? formatPanelExpanded
+                  ? "format-panel is-floating is-open"
+                  : "format-panel is-floating"
+                : "format-panel"
+            }
+            aria-label="格式工具"
+          >
             <div className="format-panel-header">
               <strong>格式</strong>
-              <span>Aa</span>
+              {isFloatingToolViewport ? (
+                <span className="format-panel-chip">Aa</span>
+              ) : (
+                <button type="button" className="format-panel-toggle" aria-label="格式面板">
+                  Aa
+                </button>
+              )}
             </div>
 
             <div className="format-panel-group">
@@ -2002,6 +2042,46 @@ export default function App() {
             ) : null}
           </aside>
         </div>
+
+        {isFloatingToolViewport ? (
+          <div className="tool-rail" aria-label="右侧工具">
+            <button
+              type="button"
+              className="tool-rail-button"
+              title="插入"
+              aria-label="插入"
+              onClick={() => setFormatPanelExpanded(true)}
+            >
+              <Plus size={18} />
+            </button>
+            <button
+              type="button"
+              className={formatPanelExpanded ? "tool-rail-button is-active" : "tool-rail-button"}
+              aria-label={formatPanelExpanded ? "收起格式面板" : "展开格式面板"}
+              onClick={() => setFormatPanelExpanded((current) => !current)}
+            >
+              Aa
+            </button>
+            <button
+              type="button"
+              className="tool-rail-button"
+              title="装饰"
+              aria-label="装饰"
+              onClick={() => setFormatPanelExpanded(true)}
+            >
+              <Highlighter size={18} />
+            </button>
+            <button
+              type="button"
+              className="tool-rail-button"
+              title="信息"
+              aria-label="信息"
+              onClick={() => setFormatPanelExpanded(true)}
+            >
+              <Info size={18} />
+            </button>
+          </div>
+        ) : null}
       </section>
 
       {settingsOpen ? (
