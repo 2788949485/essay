@@ -1076,6 +1076,60 @@ input[type="range"] {
   cursor: text;
 }
 
+.table-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: min(100%, 780px);
+  margin: 0 auto 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 18px;
+  background: var(--surface-raised);
+  box-shadow: inset 0 1px 0 var(--panel-inset), var(--shadow-floating);
+  backdrop-filter: blur(20px);
+  padding: 8px;
+}
+
+.table-toolbar-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.table-toolbar-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-text);
+  font-size: 12px;
+  font-weight: 650;
+  padding: 0 4px;
+}
+
+.table-toolbar button {
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--surface-soft);
+  color: var(--text-color);
+  padding: 0 10px;
+}
+
+.table-toolbar button:hover {
+  border-color: var(--line-soft);
+  background: var(--surface-hover);
+}
+
+.table-toolbar button.danger:hover {
+  color: var(--danger-color);
+}
+
 .selection-toolbar {
   border: 1px solid var(--panel-border);
   background: var(--surface-raised);

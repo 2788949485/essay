@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BubbleMenu, EditorContent, FloatingMenu, useEditor } from "@tiptap/react";
+import { EditorContent, FloatingMenu, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
@@ -12,8 +12,12 @@ import TableRow from "@tiptap/extension-table-row";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Highlight from "@tiptap/extension-highlight";
+import TextAlign from "@tiptap/extension-text-align";
 import Typography from "@tiptap/extension-typography";
 import {
+  AlignCenter,
+  AlignLeft,
+  AlignRight,
   Archive,
   ArchiveRestore,
   Bold,
@@ -57,6 +61,7 @@ import type { AppSettings, BackupEntry, BatchExportFormat, NoteRecord } from "..
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 type ExportFormat = "html" | "json" | "txt" | "md" | "pdf";
 type ViewMode = "active" | "favorites" | "archive" | "trash" | "recent";
+type LeftPaneMode = "document" | "files";
 type ActiveEditor = NonNullable<ReturnType<typeof useEditor>>;
 
 type FindMatch = {
@@ -268,6 +273,10 @@ function ToolbarButton({
   );
 }
 
+function keepEditorFocus(event: React.MouseEvent<HTMLButtonElement>) {
+  event.preventDefault();
+}
+
 export default function App() {
   const [notes, setNotes] = useState<NoteRecord[]>([]);
   const [activeId, setActiveId] = useState<string>("");
@@ -283,7 +292,8 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [hotkeyDraft, setHotkeyDraft] = useState("");
   const [hotkeyStatus, setHotkeyStatus] = useState("");
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 980);
+  const [leftPaneMode, setLeftPaneMode] = useState<LeftPaneMode>("document");
   const [privacyLocked, setPrivacyLocked] = useState(false);
   const [privacyPinDraft, setPrivacyPinDraft] = useState("");
   const [clearPrivacyPin, setClearPrivacyPin] = useState(false);
@@ -301,7 +311,6 @@ export default function App() {
   const [historyEntries, setHistoryEntries] = useState<BackupEntry[]>([]);
   const [historyStatus, setHistoryStatus] = useState("");
   const [outlineItems, setOutlineItems] = useState<OutlineItem[]>([]);
-  const [outlineCollapsed, setOutlineCollapsed] = useState(false);
   const [editorText, setEditorText] = useState("");
   const [blockMenuOpen, setBlockMenuOpen] = useState(false);
   const [tableToolbarVisible, setTableToolbarVisible] = useState(false);
@@ -343,6 +352,9 @@ export default function App() {
       TableRow,
       TableHeader,
       TableCell,
+      TextAlign.configure({
+        types: ["heading", "paragraph"]
+      }),
       Placeholder.configure({
         placeholder: "开始记录..."
       }),
@@ -649,6 +661,7 @@ export default function App() {
   const metaTagsPreview = useMemo(() => parseTagsInput(tagsDraft), [tagsDraft]);
   const folderPreview = folderDraft.trim();
   const hasMetaInfo = metaTagsPreview.length > 0 || Boolean(folderPreview);
+  const editorDisabled = Boolean(activeNote?.trashedAt);
 
   const filteredNotes = useMemo(() => {
     const keyword = searchSyntax.text;
@@ -1274,6 +1287,24 @@ export default function App() {
             >
               <PanelLeftOpen size={18} />
             </button>
+            <button
+              className={leftPaneMode === "document" ? "icon-button is-active" : "icon-button"}
+              title="文档目录"
+              aria-label="文档目录"
+              onClick={() => setLeftPaneMode("document")}
+              type="button"
+            >
+              <List size={18} />
+            </button>
+            <button
+              className={leftPaneMode === "files" ? "icon-button is-active" : "icon-button"}
+              title="文档列表"
+              aria-label="文档列表"
+              onClick={() => setLeftPaneMode("files")}
+              type="button"
+            >
+              <FolderOpen size={18} />
+            </button>
             <button className="icon-button primary-icon" title="新记录" aria-label="新记录" onClick={() => void handleCreate()} type="button">
               <Plus size={18} />
             </button>
@@ -1283,315 +1314,411 @@ export default function App() {
           </div>
         ) : (
           <>
-        <div className="brand-row">
-          <div>
-            <h1>随记</h1>
-            <p>{settings ? cnHotkey(settings.hotkey) : "Ctrl + Alt + J"} 呼出</p>
-          </div>
-          <div className="brand-actions">
-            <button
-              className="icon-button"
-              title="收起侧边栏"
-              aria-label="收起侧边栏"
-              onClick={() => setSidebarCollapsed(true)}
-              type="button"
-            >
-              <PanelLeftClose size={18} />
-            </button>
-            <button className="icon-button" title="隐藏窗口" aria-label="隐藏窗口" onClick={() => window.suiji.hideWindow()} type="button">
-              <EyeOff size={18} />
-            </button>
-          </div>
-        </div>
-
-        <div className="search-box">
-          <Search size={17} />
-          <div className="search-box-body">
-            <span className="search-box-label">检索</span>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索记录" />
-          </div>
-        </div>
-
-        <div className="sidebar-section-label">视图</div>
-        <div className="view-switch" aria-label="记录视图">
-          {[
-            ["active", "记录", List],
-            ["favorites", "收藏", Star],
-            ["archive", "归档", Archive],
-            ["trash", "回收站", Trash2],
-            ["recent", "最近", Clock]
-          ].map(([mode, label, Icon]) => (
-            <button
-              key={String(mode)}
-              type="button"
-              className={viewMode === mode ? "is-active" : ""}
-              onClick={() => {
-                const nextMode = mode as ViewMode;
-                setViewMode(nextMode);
-                const next = firstVisibleNote(notes, nextMode);
-                if (next) setActiveId(next.id);
-              }}
-            >
-              <Icon size={14} />
-              {String(label)}
-            </button>
-          ))}
-        </div>
-
-        {allFolders.length > 0 ? (
-          <div className="folder-filter" aria-label="文件夹筛选">
-            <button
-              type="button"
-              className={selectedFolder ? "" : "is-active"}
-              onClick={() => setSelectedFolder("")}
-            >
-              <Folder size={13} />
-              全部文件夹
-            </button>
-            {allFolders.map((folder) => (
-              <button
-                key={folder}
-                type="button"
-                className={selectedFolder === folder ? "is-active" : ""}
-                onClick={() => setSelectedFolder(folder)}
-              >
-                <Folder size={13} />
-                {folder}
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        {allTags.length > 0 ? (
-          <div className="tag-filter" aria-label="标签筛选">
-            <button
-              type="button"
-              className={selectedTag ? "" : "is-active"}
-              onClick={() => setSelectedTag("")}
-            >
-              全部
-            </button>
-            {allTags.map((tag) => (
-              <button
-                key={tag}
-                type="button"
-                className={selectedTag === tag ? "is-active" : ""}
-                onClick={() => setSelectedTag(tag)}
-              >
-                {tag}
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        <button className="new-note-button" type="button" onClick={handleCreate}>
-          <Plus size={18} />
-          新记录
-        </button>
-
-        {viewMode === "recent" ? (
-          <div className="recent-timeline" aria-label="最近编辑时间线">
-            {recentNotes.map((note) => (
-              <button
-                key={note.id}
-                type="button"
-                className={note.id === activeId ? "is-active" : ""}
-                onClick={() => void handleSelectNote(note.id)}
-              >
-                <span>{formatTime(note.updatedAt)}</span>
-                <strong>
-                  <HighlightedText text={note.title} keyword={searchKeyword} />
-                </strong>
-              </button>
-            ))}
-          </div>
-        ) : null}
-
-        <div className="sidebar-list-header">
-          <span>{viewMode === "recent" ? "最近编辑" : "记录列表"}</span>
-          <strong>{viewMode === "recent" ? recentNotes.length : filteredNotes.length}</strong>
-        </div>
-
-        <nav className="note-list">
-          {filteredNotes.map((note) => (
-            <div
-              key={note.id}
-              className={note.id === activeId ? "note-item is-active" : "note-item"}
-              role="button"
-              tabIndex={0}
-              onMouseDown={(event) => {
-                if (!(event.target instanceof HTMLElement) || event.target.closest("button")) return;
-                event.preventDefault();
-              }}
-              onClick={() => void handleSelectNote(note.id)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  void handleSelectNote(note.id);
-                }
-              }}
-            >
-              <div className="note-item-header">
-                <span className="note-title">
-                  {note.pinnedAt ? <Pin size={13} className="note-pin-mark" /> : null}
-                  <span className="note-title-text">
-                    <HighlightedText text={note.title} keyword={searchKeyword} />
-                  </span>
-                </span>
-                <div className="note-actions">
-                  <button
-                    type="button"
-                    title={note.pinnedAt ? "取消置顶" : "置顶"}
-                    aria-label={note.pinnedAt ? "取消置顶" : "置顶"}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void handleTogglePin(note.id);
-                    }}
-                  >
-                    {note.pinnedAt ? <PinOff size={14} /> : <Pin size={14} />}
-                  </button>
-                  {note.trashedAt ? (
-                    <>
-                      <button
-                        type="button"
-                        title="恢复记录"
-                        aria-label="恢复记录"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleRestoreNote(note.id);
-                        }}
-                      >
-                        <ArchiveRestore size={14} />
-                      </button>
-                      <button
-                        type="button"
-                        title="永久删除"
-                        aria-label="永久删除"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handlePurgeNote(note.id);
-                        }}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        title={note.favoriteAt ? "取消收藏" : "收藏"}
-                        aria-label={note.favoriteAt ? "取消收藏" : "收藏"}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleToggleFavorite(note.id);
-                        }}
-                      >
-                        {note.favoriteAt ? <StarOff size={14} /> : <Star size={14} />}
-                      </button>
-                      <button
-                        type="button"
-                        title={note.archivedAt ? "取消归档" : "归档"}
-                        aria-label={note.archivedAt ? "取消归档" : "归档"}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleToggleArchive(note.id);
-                        }}
-                      >
-                        {note.archivedAt ? <ArchiveRestore size={14} /> : <Archive size={14} />}
-                      </button>
-                    </>
-                  )}
-                  <button
-                    type="button"
-                    title="移到回收站"
-                    aria-label="移到回收站"
-                    disabled={Boolean(note.trashedAt)}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void handleDeleteNote(note.id);
-                    }}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
+            <div className="brand-row compact">
+              <div className="workspace-badge">
+                <strong>我的空间</strong>
+                <span>{leftPaneMode === "document" ? "文档目录" : "文档列表"}</span>
               </div>
-              {note.folder || note.tags.length > 0 ? (
-                <div className="note-meta">
-                  {note.folder ? (
-                    <span className="note-folder">
-                      <Folder size={12} />
-                      {note.folder}
-                    </span>
-                  ) : null}
-                  {note.tags.slice(0, 2).map((tag) => (
-                    <span key={tag} className="note-tag">
-                      <HighlightedText text={tag} keyword={searchKeyword} />
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              <span className="note-excerpt">
-                <HighlightedText text={note.excerpt || "空记录"} keyword={searchKeyword} />
-              </span>
-              <span className="note-time">{formatTime(note.updatedAt)}</span>
+              <div className="brand-actions">
+                <button
+                  className="icon-button"
+                  title="收起侧边栏"
+                  aria-label="收起侧边栏"
+                  onClick={() => setSidebarCollapsed(true)}
+                  type="button"
+                >
+                  <PanelLeftClose size={18} />
+                </button>
+                <button className="icon-button" title="隐藏窗口" aria-label="隐藏窗口" onClick={() => window.suiji.hideWindow()} type="button">
+                  <EyeOff size={18} />
+                </button>
+              </div>
             </div>
-          ))}
-        </nav>
+
+            <div className="sidebar-body">
+              {leftPaneMode === "document" ? (
+                <>
+                  <div className="sidebar-summary-card">
+                    <span>当前文档</span>
+                    <strong>{title.trim() || activeNote?.title || "未命名记录"}</strong>
+                    <p>
+                      {editorStats.chars} 字 · {outlineItems.length} 个标题
+                    </p>
+                  </div>
+
+                  <div className="sidebar-quick-actions">
+                    <button type="button" className="sidebar-chip is-active">
+                      <List size={14} />
+                      目录
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      title="查找"
+                      aria-label="查找"
+                      onClick={() => {
+                        setFindOpen(true);
+                        setReplaceOpen(false);
+                      }}
+                    >
+                      <Search size={16} />
+                    </button>
+                    <button type="button" className="icon-button" title="新记录" aria-label="新记录" onClick={() => void handleCreate()}>
+                      <Plus size={16} />
+                    </button>
+                  </div>
+
+                  <div className="sidebar-list-header">
+                    <span>目录</span>
+                    <strong>{outlineItems.length}</strong>
+                  </div>
+
+                  {outlineItems.length > 0 ? (
+                    <nav className="document-outline-list" aria-label="当前文档目录">
+                      {outlineItems.map((item, index) => (
+                        <button
+                          key={`${item.pos}-${index}`}
+                          type="button"
+                          className={`outline-link outline-level-${item.level}`}
+                          onMouseDown={keepEditorFocus}
+                          onClick={() => jumpToOutline(item)}
+                        >
+                          {item.text}
+                        </button>
+                      ))}
+                    </nav>
+                  ) : (
+                    <div className="document-outline-empty">
+                      <strong>目录</strong>
+                      <p>使用标题创建目录。</p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <button className="new-note-button" type="button" onClick={handleCreate}>
+                    <Plus size={18} />
+                    新记录
+                  </button>
+
+                  <div className="search-box">
+                    <Search size={17} />
+                    <div className="search-box-body">
+                      <span className="search-box-label">检索</span>
+                      <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索记录" />
+                    </div>
+                  </div>
+
+                  <div className="view-switch" aria-label="记录视图">
+                    {[
+                      ["active", "记录", List],
+                      ["favorites", "收藏", Star],
+                      ["archive", "归档", Archive],
+                      ["trash", "回收站", Trash2],
+                      ["recent", "最近", Clock]
+                    ].map(([mode, label, Icon]) => (
+                      <button
+                        key={String(mode)}
+                        type="button"
+                        className={viewMode === mode ? "is-active" : ""}
+                        onClick={() => {
+                          const nextMode = mode as ViewMode;
+                          setViewMode(nextMode);
+                          const next = firstVisibleNote(notes, nextMode);
+                          if (next) setActiveId(next.id);
+                        }}
+                      >
+                        <Icon size={14} />
+                        {String(label)}
+                      </button>
+                    ))}
+                  </div>
+
+                  {allFolders.length > 0 ? (
+                    <div className="folder-filter" aria-label="文件夹筛选">
+                      <button
+                        type="button"
+                        className={selectedFolder ? "" : "is-active"}
+                        onClick={() => setSelectedFolder("")}
+                      >
+                        <Folder size={13} />
+                        全部文件夹
+                      </button>
+                      {allFolders.map((folder) => (
+                        <button
+                          key={folder}
+                          type="button"
+                          className={selectedFolder === folder ? "is-active" : ""}
+                          onClick={() => setSelectedFolder(folder)}
+                        >
+                          <Folder size={13} />
+                          {folder}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {allTags.length > 0 ? (
+                    <div className="tag-filter" aria-label="标签筛选">
+                      <button
+                        type="button"
+                        className={selectedTag ? "" : "is-active"}
+                        onClick={() => setSelectedTag("")}
+                      >
+                        全部
+                      </button>
+                      {allTags.map((tag) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          className={selectedTag === tag ? "is-active" : ""}
+                          onClick={() => setSelectedTag(tag)}
+                        >
+                          {tag}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  {viewMode === "recent" ? (
+                    <div className="recent-timeline" aria-label="最近编辑时间线">
+                      {recentNotes.map((note) => (
+                        <button
+                          key={note.id}
+                          type="button"
+                          className={note.id === activeId ? "is-active" : ""}
+                          onClick={() => void handleSelectNote(note.id)}
+                        >
+                          <span>{formatTime(note.updatedAt)}</span>
+                          <strong>
+                            <HighlightedText text={note.title} keyword={searchKeyword} />
+                          </strong>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <div className="sidebar-list-header">
+                    <span>{viewMode === "recent" ? "最近编辑" : "记录列表"}</span>
+                    <strong>{viewMode === "recent" ? recentNotes.length : filteredNotes.length}</strong>
+                  </div>
+
+                  <nav className="note-list">
+                    {filteredNotes.map((note) => (
+                      <div
+                        key={note.id}
+                        className={note.id === activeId ? "note-item is-active" : "note-item"}
+                        role="button"
+                        tabIndex={0}
+                        onMouseDown={(event) => {
+                          if (!(event.target instanceof HTMLElement) || event.target.closest("button")) return;
+                          event.preventDefault();
+                        }}
+                        onClick={() => void handleSelectNote(note.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            void handleSelectNote(note.id);
+                          }
+                        }}
+                      >
+                        <div className="note-item-header">
+                          <span className="note-title">
+                            {note.pinnedAt ? <Pin size={13} className="note-pin-mark" /> : null}
+                            <span className="note-title-text">
+                              <HighlightedText text={note.title} keyword={searchKeyword} />
+                            </span>
+                          </span>
+                          <div className="note-actions">
+                            <button
+                              type="button"
+                              title={note.pinnedAt ? "取消置顶" : "置顶"}
+                              aria-label={note.pinnedAt ? "取消置顶" : "置顶"}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleTogglePin(note.id);
+                              }}
+                            >
+                              {note.pinnedAt ? <PinOff size={14} /> : <Pin size={14} />}
+                            </button>
+                            {note.trashedAt ? (
+                              <>
+                                <button
+                                  type="button"
+                                  title="恢复记录"
+                                  aria-label="恢复记录"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleRestoreNote(note.id);
+                                  }}
+                                >
+                                  <ArchiveRestore size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  title="永久删除"
+                                  aria-label="永久删除"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handlePurgeNote(note.id);
+                                  }}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  title={note.favoriteAt ? "取消收藏" : "收藏"}
+                                  aria-label={note.favoriteAt ? "取消收藏" : "收藏"}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleToggleFavorite(note.id);
+                                  }}
+                                >
+                                  {note.favoriteAt ? <StarOff size={14} /> : <Star size={14} />}
+                                </button>
+                                <button
+                                  type="button"
+                                  title={note.archivedAt ? "取消归档" : "归档"}
+                                  aria-label={note.archivedAt ? "取消归档" : "归档"}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleToggleArchive(note.id);
+                                  }}
+                                >
+                                  {note.archivedAt ? <ArchiveRestore size={14} /> : <Archive size={14} />}
+                                </button>
+                              </>
+                            )}
+                            <button
+                              type="button"
+                              title="移到回收站"
+                              aria-label="移到回收站"
+                              disabled={Boolean(note.trashedAt)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleDeleteNote(note.id);
+                              }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        </div>
+                        {note.folder || note.tags.length > 0 ? (
+                          <div className="note-meta">
+                            {note.folder ? (
+                              <span className="note-folder">
+                                <Folder size={12} />
+                                {note.folder}
+                              </span>
+                            ) : null}
+                            {note.tags.slice(0, 2).map((tag) => (
+                              <span key={tag} className="note-tag">
+                                <HighlightedText text={tag} keyword={searchKeyword} />
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        <span className="note-excerpt">
+                          <HighlightedText text={note.excerpt || "空记录"} keyword={searchKeyword} />
+                        </span>
+                        <span className="note-time">{formatTime(note.updatedAt)}</span>
+                      </div>
+                    ))}
+                  </nav>
+                </>
+              )}
+            </div>
+
+            <div className="sidebar-mode-switch" aria-label="左侧内容切换">
+              <button
+                type="button"
+                className={leftPaneMode === "document" ? "sidebar-mode-button is-active" : "sidebar-mode-button"}
+                onClick={() => setLeftPaneMode("document")}
+              >
+                <List size={16} />
+                文档
+              </button>
+              <button
+                type="button"
+                className={leftPaneMode === "files" ? "sidebar-mode-button is-active" : "sidebar-mode-button"}
+                onClick={() => setLeftPaneMode("files")}
+              >
+                <FolderOpen size={16} />
+                文件
+              </button>
+            </div>
           </>
         )}
       </aside>
 
       <section className="workspace">
         <header className="topbar">
-          <div className="title-group">
-            <input
-              className="title-input"
-              value={title}
-              onChange={(event) => {
-                setTitle(event.target.value);
-                markDirty();
-              }}
-              placeholder="未命名记录"
-            />
-            <div className="meta-summary-row">
-              <button
-                type="button"
-                className={metaEditorOpen ? "meta-summary is-open" : "meta-summary"}
-                onClick={() => setMetaEditorOpen((current) => !current)}
-              >
-                {folderPreview ? <span className="meta-chip meta-folder-chip">文件夹 · {folderPreview}</span> : null}
-                {metaTagsPreview.slice(0, 3).map((tag) => (
-                  <span key={tag} className="meta-chip">
-                    {tag}
-                  </span>
-                ))}
-                {metaTagsPreview.length > 3 ? <span className="meta-chip">+{metaTagsPreview.length - 3}</span> : null}
-                {!hasMetaInfo ? <span className="meta-summary-empty">添加标签和文件夹</span> : null}
-                <span className="meta-summary-action">{metaEditorOpen ? "收起属性" : "编辑属性"}</span>
-              </button>
-            </div>
-            {metaEditorOpen ? (
-              <div className="meta-input-row">
-                <input
-                  className="tags-input"
-                  value={tagsDraft}
-                  onChange={(event) => {
-                    setTagsDraft(event.target.value);
-                    markDirty();
-                  }}
-                  placeholder="标签，用逗号分隔"
-                />
-                <input
-                  className="folder-input"
-                  value={folderDraft}
-                  onChange={(event) => {
-                    setFolderDraft(event.target.value);
-                    markDirty();
-                  }}
-                  placeholder="文件夹"
-                />
+          <div className="topbar-leading">
+            <button
+              className="icon-button workspace-nav-toggle"
+              title={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
+              aria-label={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
+              onClick={() => setSidebarCollapsed((current) => !current)}
+              type="button"
+            >
+              {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+            </button>
+            <div className="title-group">
+              <div className="workspace-crumb">
+                {folderPreview || "未分类"} / {title.trim() || "未命名记录"}
               </div>
-            ) : null}
+              <input
+                className="title-input"
+                value={title}
+                onChange={(event) => {
+                  setTitle(event.target.value);
+                  markDirty();
+                }}
+                placeholder="未命名记录"
+              />
+              <div className="meta-summary-row">
+                <button
+                  type="button"
+                  className={metaEditorOpen ? "meta-summary is-open" : "meta-summary"}
+                  onClick={() => setMetaEditorOpen((current) => !current)}
+                >
+                  {folderPreview ? <span className="meta-chip meta-folder-chip">文件夹 · {folderPreview}</span> : null}
+                  {metaTagsPreview.slice(0, 3).map((tag) => (
+                    <span key={tag} className="meta-chip">
+                      {tag}
+                    </span>
+                  ))}
+                  {metaTagsPreview.length > 3 ? <span className="meta-chip">+{metaTagsPreview.length - 3}</span> : null}
+                  {!hasMetaInfo ? <span className="meta-summary-empty">添加标签和文件夹</span> : null}
+                  <span className="meta-summary-action">{metaEditorOpen ? "收起属性" : "编辑属性"}</span>
+                </button>
+              </div>
+              {metaEditorOpen ? (
+                <div className="meta-input-row">
+                  <input
+                    className="tags-input"
+                    value={tagsDraft}
+                    onChange={(event) => {
+                      setTagsDraft(event.target.value);
+                      markDirty();
+                    }}
+                    placeholder="标签，用逗号分隔"
+                  />
+                  <input
+                    className="folder-input"
+                    value={folderDraft}
+                    onChange={(event) => {
+                      setFolderDraft(event.target.value);
+                      markDirty();
+                    }}
+                    placeholder="文件夹"
+                  />
+                </div>
+              ) : null}
+            </div>
           </div>
           <div className="topbar-actions">
             <div className="topbar-statuses">
@@ -1603,221 +1730,278 @@ export default function App() {
           </div>
         </header>
 
-        {findOpen ? (
-          <div className="find-panel">
-            <div className="find-inputs">
-              <input
-                value={findQuery}
-                autoFocus
-                placeholder="查找"
-                onChange={(event) => setFindQuery(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    handleFindNext(event.shiftKey ? -1 : 1);
-                  }
-                  if (event.key === "Escape") {
-                    setFindOpen(false);
-                    focusEditorSoon();
-                  }
-                }}
-              />
-              {replaceOpen ? (
-                <input
-                  value={replaceValue}
-                  placeholder="替换为"
-                  onChange={(event) => setReplaceValue(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      handleReplaceCurrent();
-                    }
-                  }}
-                />
-              ) : null}
-            </div>
-            <span className="find-count">
-              {findQuery ? `${findMatches.length ? findIndex + 1 : 0}/${findMatches.length}` : "0/0"}
-            </span>
-            <button type="button" onClick={() => handleFindNext(-1)}>
-              上一个
-            </button>
-            <button type="button" onClick={() => handleFindNext(1)}>
-              下一个
-            </button>
-            <button type="button" onClick={() => setReplaceOpen((current) => !current)}>
-              替换
-            </button>
-            {replaceOpen ? (
-              <>
-                <button type="button" onClick={handleReplaceCurrent}>
-                  替换当前
+        <div className="document-stage">
+          <div className="editor-column">
+            {findOpen ? (
+              <div className="find-panel">
+                <div className="find-inputs">
+                  <input
+                    value={findQuery}
+                    autoFocus
+                    placeholder="查找"
+                    onChange={(event) => setFindQuery(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        handleFindNext(event.shiftKey ? -1 : 1);
+                      }
+                      if (event.key === "Escape") {
+                        setFindOpen(false);
+                        focusEditorSoon();
+                      }
+                    }}
+                  />
+                  {replaceOpen ? (
+                    <input
+                      value={replaceValue}
+                      placeholder="替换为"
+                      onChange={(event) => setReplaceValue(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          handleReplaceCurrent();
+                        }
+                      }}
+                    />
+                  ) : null}
+                </div>
+                <span className="find-count">
+                  {findQuery ? `${findMatches.length ? findIndex + 1 : 0}/${findMatches.length}` : "0/0"}
+                </span>
+                <button type="button" onClick={() => handleFindNext(-1)}>
+                  上一个
                 </button>
-                <button type="button" onClick={handleReplaceAll}>
-                  全部替换
+                <button type="button" onClick={() => handleFindNext(1)}>
+                  下一个
                 </button>
-              </>
-            ) : null}
-            <button
-              type="button"
-              aria-label="关闭查找"
-              onClick={() => {
-                setFindOpen(false);
-                focusEditorSoon();
-              }}
-            >
-              关闭
-            </button>
-          </div>
-        ) : null}
-
-        <div
-          ref={editorWrapRef}
-          className="editor-wrap"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
-              event.preventDefault();
-              editor?.commands.focus("end");
-            }
-          }}
-          onClick={() => editor?.commands.focus()}
-        >
-          <input
-            ref={imageInputRef}
-            className="hidden-file-input"
-            type="file"
-            accept="image/*"
-            onChange={(event) => {
-              void handleInsertImage(event.target.files?.[0]);
-              event.currentTarget.value = "";
-            }}
-          />
-          {editor ? (
-            <FloatingMenu
-              editor={editor}
-              tippyOptions={{ duration: 120, placement: "left-start", maxWidth: "none", offset: [0, 8] }}
-              shouldShow={({ editor }) => isEmptyParagraphSelection(editor) && !activeNote?.trashedAt}
-            >
-              <div className="block-insert-anchor">
+                <button type="button" onClick={() => setReplaceOpen((current) => !current)}>
+                  替换
+                </button>
+                {replaceOpen ? (
+                  <>
+                    <button type="button" onClick={handleReplaceCurrent}>
+                      替换当前
+                    </button>
+                    <button type="button" onClick={handleReplaceAll}>
+                      全部替换
+                    </button>
+                  </>
+                ) : null}
                 <button
                   type="button"
-                  className={blockMenuOpen ? "block-insert-trigger is-open" : "block-insert-trigger"}
-                  aria-label="插入块"
-                  title="插入块"
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    setBlockMenuOpen((current) => !current);
+                  aria-label="关闭查找"
+                  onClick={() => {
+                    setFindOpen(false);
+                    focusEditorSoon();
                   }}
                 >
-                  <Plus size={15} />
+                  关闭
                 </button>
-                {blockMenuOpen ? (
-                  <div className="block-insert-menu" aria-label="块格式菜单">
-                    {blockMenuCommands.map((command) => (
-                      <button
-                        key={command.id}
-                        type="button"
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          applyBlockMenuCommand(command);
-                        }}
-                      >
-                        <strong>{command.label}</strong>
-                        <span>{command.hint}</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
               </div>
-            </FloatingMenu>
-          ) : null}
-          {editor ? (
-            <BubbleMenu
-              editor={editor}
-              tippyOptions={{ duration: 120, placement: "top", maxWidth: "none" }}
-              shouldShow={({ editor }) => {
-                const { empty } = editor.state.selection;
-                return !empty && !activeNote?.trashedAt;
+            ) : null}
+
+            <div
+              ref={editorWrapRef}
+              className="editor-wrap"
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) {
+                  event.preventDefault();
+                  editor?.commands.focus("end");
+                }
               }}
+              onClick={() => editor?.commands.focus()}
             >
-              <div className="selection-toolbar" aria-label="文本格式工具">
-                <ToolbarButton title="一级标题" active={editor.isActive("heading", { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>
-                  <Heading1 size={16} />
-                </ToolbarButton>
-                <ToolbarButton title="二级标题" active={editor.isActive("heading", { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>
-                  <Heading2 size={16} />
-                </ToolbarButton>
-                <span className="selection-toolbar-separator" />
-                <ToolbarButton title="加粗" active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}>
-                  <Bold size={16} />
-                </ToolbarButton>
-                <ToolbarButton title="斜体" active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()}>
-                  <Italic size={16} />
-                </ToolbarButton>
-                <ToolbarButton title="下划线" active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()}>
-                  <UnderlineIcon size={16} />
-                </ToolbarButton>
-                <ToolbarButton title="删除线" active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()}>
-                  <Strikethrough size={16} />
-                </ToolbarButton>
-                <ToolbarButton title="高亮" active={editor.isActive("highlight")} onClick={() => editor.chain().focus().toggleHighlight().run()}>
-                  <Highlighter size={16} />
-                </ToolbarButton>
-                <ToolbarButton title="链接" active={editor.isActive("link")} onClick={handleLink}>
-                  <Link2 size={16} />
-                </ToolbarButton>
-                <span className="selection-toolbar-separator" />
-                <ToolbarButton title="项目列表" active={editor.isActive("bulletList")} onClick={() => editor.chain().focus().toggleBulletList().run()}>
-                  <List size={16} />
-                </ToolbarButton>
-                <ToolbarButton title="编号列表" active={editor.isActive("orderedList")} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
-                  <ListOrdered size={16} />
-                </ToolbarButton>
-                <ToolbarButton title="任务列表" active={editor.isActive("taskList")} onClick={() => editor.chain().focus().toggleTaskList().run()}>
-                  <CheckSquare size={16} />
-                </ToolbarButton>
-                <ToolbarButton title="引用" active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()}>
-                  <Quote size={16} />
-                </ToolbarButton>
-                <ToolbarButton title="代码块" active={editor.isActive("codeBlock")} onClick={() => editor.chain().focus().toggleCodeBlock().run()}>
-                  <Code2 size={16} />
-                </ToolbarButton>
-              </div>
-            </BubbleMenu>
-          ) : null}
-          {editor ? <EditorContent editor={editor} /> : null}
-        </div>
-        {outlineItems.length > 0 ? (
-          <aside className={outlineCollapsed ? "outline-panel is-collapsed" : "outline-panel"} aria-label="大纲目录">
-            <div className="outline-header">
-              <strong>大纲</strong>
-              <button
-                type="button"
-                className="outline-toggle"
-                title={outlineCollapsed ? "展开大纲" : "收起大纲"}
-                aria-label={outlineCollapsed ? "展开大纲" : "收起大纲"}
-                aria-expanded={!outlineCollapsed}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => setOutlineCollapsed((current) => !current)}
-              >
-                <ChevronDown size={14} />
-              </button>
+              <input
+                ref={imageInputRef}
+                className="hidden-file-input"
+                type="file"
+                accept="image/*"
+                onChange={(event) => {
+                  void handleInsertImage(event.target.files?.[0]);
+                  event.currentTarget.value = "";
+                }}
+              />
+              {editor ? (
+                <FloatingMenu
+                  editor={editor}
+                  tippyOptions={{ duration: 120, placement: "left-start", maxWidth: "none", offset: [0, 8] }}
+                  shouldShow={({ editor }) => isEmptyParagraphSelection(editor) && !activeNote?.trashedAt}
+                >
+                  <div className="block-insert-anchor">
+                    <button
+                      type="button"
+                      className={blockMenuOpen ? "block-insert-trigger is-open" : "block-insert-trigger"}
+                      aria-label="插入块"
+                      title="插入块"
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        setBlockMenuOpen((current) => !current);
+                      }}
+                    >
+                      <Plus size={15} />
+                    </button>
+                    {blockMenuOpen ? (
+                      <div className="block-insert-menu" aria-label="块格式菜单">
+                        {blockMenuCommands.map((command) => (
+                          <button
+                            key={command.id}
+                            type="button"
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              applyBlockMenuCommand(command);
+                            }}
+                          >
+                            <strong>{command.label}</strong>
+                            <span>{command.hint}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                </FloatingMenu>
+              ) : null}
+              {editor ? <EditorContent editor={editor} /> : null}
             </div>
-            {!outlineCollapsed
-              ? outlineItems.map((item, index) => (
-                  <button
-                    key={`${item.pos}-${index}`}
-                    type="button"
-                    className={`outline-level-${item.level}`}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => jumpToOutline(item)}
-                  >
-                    {item.text}
+          </div>
+
+          <aside className="format-panel" aria-label="格式工具">
+            <div className="format-panel-header">
+              <strong>格式</strong>
+              <span>Aa</span>
+            </div>
+
+            <div className="format-panel-group">
+              <span className="format-panel-label">文本</span>
+              <div className="format-grid">
+                <button
+                  type="button"
+                  className={editor?.isActive("heading", { level: 1 }) ? "format-button is-active" : "format-button"}
+                  onMouseDown={keepEditorFocus}
+                  onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
+                  disabled={!editor || editorDisabled}
+                >
+                  <Heading1 size={16} />
+                  标题 1
+                </button>
+                <button
+                  type="button"
+                  className={editor?.isActive("heading", { level: 2 }) ? "format-button is-active" : "format-button"}
+                  onMouseDown={keepEditorFocus}
+                  onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
+                  disabled={!editor || editorDisabled}
+                >
+                  <Heading2 size={16} />
+                  标题 2
+                </button>
+                <button
+                  type="button"
+                  className={editor?.isActive("paragraph") ? "format-button is-active" : "format-button"}
+                  onMouseDown={keepEditorFocus}
+                  onClick={() => editor?.chain().focus().setParagraph().run()}
+                  disabled={!editor || editorDisabled}
+                >
+                  <AlignLeft size={16} />
+                  正文
+                </button>
+              </div>
+            </div>
+
+            <div className="format-panel-group">
+              <span className="format-panel-label">样式</span>
+              <div className="format-grid compact">
+                <button type="button" className={editor?.isActive("bold") ? "format-icon-button is-active" : "format-icon-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleBold().run()} disabled={!editor || editorDisabled}>
+                  <Bold size={16} />
+                </button>
+                <button type="button" className={editor?.isActive("italic") ? "format-icon-button is-active" : "format-icon-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleItalic().run()} disabled={!editor || editorDisabled}>
+                  <Italic size={16} />
+                </button>
+                <button type="button" className={editor?.isActive("underline") ? "format-icon-button is-active" : "format-icon-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleUnderline().run()} disabled={!editor || editorDisabled}>
+                  <UnderlineIcon size={16} />
+                </button>
+                <button type="button" className={editor?.isActive("strike") ? "format-icon-button is-active" : "format-icon-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleStrike().run()} disabled={!editor || editorDisabled}>
+                  <Strikethrough size={16} />
+                </button>
+                <button type="button" className={editor?.isActive("highlight") ? "format-icon-button is-active" : "format-icon-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleHighlight().run()} disabled={!editor || editorDisabled}>
+                  <Highlighter size={16} />
+                </button>
+                <button type="button" className={editor?.isActive("link") ? "format-icon-button is-active" : "format-icon-button"} onMouseDown={keepEditorFocus} onClick={handleLink} disabled={!editor || editorDisabled}>
+                  <Link2 size={16} />
+                </button>
+              </div>
+            </div>
+
+            <div className="format-panel-group">
+              <span className="format-panel-label">对齐</span>
+              <div className="format-grid compact">
+                <button type="button" className={editor?.isActive({ textAlign: "left" }) ? "format-icon-button is-active" : "format-icon-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().setTextAlign("left").run()} disabled={!editor || editorDisabled}>
+                  <AlignLeft size={16} />
+                </button>
+                <button type="button" className={editor?.isActive({ textAlign: "center" }) ? "format-icon-button is-active" : "format-icon-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().setTextAlign("center").run()} disabled={!editor || editorDisabled}>
+                  <AlignCenter size={16} />
+                </button>
+                <button type="button" className={editor?.isActive({ textAlign: "right" }) ? "format-icon-button is-active" : "format-icon-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().setTextAlign("right").run()} disabled={!editor || editorDisabled}>
+                  <AlignRight size={16} />
+                </button>
+              </div>
+            </div>
+
+            <div className="format-panel-group">
+              <span className="format-panel-label">块</span>
+              <div className="format-grid">
+                <button type="button" className={editor?.isActive("bulletList") ? "format-button is-active" : "format-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleBulletList().run()} disabled={!editor || editorDisabled}>
+                  <List size={16} />
+                  列表
+                </button>
+                <button type="button" className={editor?.isActive("orderedList") ? "format-button is-active" : "format-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleOrderedList().run()} disabled={!editor || editorDisabled}>
+                  <ListOrdered size={16} />
+                  编号
+                </button>
+                <button type="button" className={editor?.isActive("taskList") ? "format-button is-active" : "format-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleTaskList().run()} disabled={!editor || editorDisabled}>
+                  <CheckSquare size={16} />
+                  任务
+                </button>
+                <button type="button" className={editor?.isActive("blockquote") ? "format-button is-active" : "format-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleBlockquote().run()} disabled={!editor || editorDisabled}>
+                  <Quote size={16} />
+                  引用
+                </button>
+                <button type="button" className={editor?.isActive("codeBlock") ? "format-button is-active" : "format-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleCodeBlock().run()} disabled={!editor || editorDisabled}>
+                  <Code2 size={16} />
+                  代码
+                </button>
+                <button type="button" className={tableToolbarVisible ? "format-button is-active" : "format-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()} disabled={!editor || editorDisabled}>
+                  <Table2 size={16} />
+                  表格
+                </button>
+              </div>
+            </div>
+
+            {tableToolbarVisible && editor ? (
+              <div className="format-panel-group">
+                <span className="format-panel-label">表格</span>
+                <div className="format-grid">
+                  <button type="button" className="format-button" onMouseDown={keepEditorFocus} onClick={() => runTableCommand(() => editor.chain().focus().addRowBefore().run())}>
+                    上插行
                   </button>
-                ))
-              : null}
+                  <button type="button" className="format-button" onMouseDown={keepEditorFocus} onClick={() => runTableCommand(() => editor.chain().focus().addRowAfter().run())}>
+                    下插行
+                  </button>
+                  <button type="button" className="format-button" onMouseDown={keepEditorFocus} onClick={() => runTableCommand(() => editor.chain().focus().addColumnBefore().run())}>
+                    左插列
+                  </button>
+                  <button type="button" className="format-button" onMouseDown={keepEditorFocus} onClick={() => runTableCommand(() => editor.chain().focus().addColumnAfter().run())}>
+                    右插列
+                  </button>
+                  <button type="button" className="format-button" onMouseDown={keepEditorFocus} onClick={() => runTableCommand(() => editor.chain().focus().deleteRow().run())}>
+                    删行
+                  </button>
+                  <button type="button" className="format-button danger" onMouseDown={keepEditorFocus} onClick={() => runTableCommand(() => editor.chain().focus().deleteTable().run())}>
+                    删表
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </aside>
-        ) : null}
+        </div>
       </section>
 
       {settingsOpen ? (
