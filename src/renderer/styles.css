@@ -678,16 +678,16 @@ input::placeholder {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 20px;
-  min-height: 86px;
-  padding: 22px 28px 14px;
+  gap: 16px;
+  min-height: 74px;
+  padding: 18px 28px 12px;
 }
 
 .title-group {
   display: grid;
   min-width: 0;
   flex: 1 1 auto;
-  gap: 8px;
+  gap: 6px;
 }
 
 .title-input {
@@ -811,8 +811,8 @@ input::placeholder {
   display: grid;
   flex: 0 0 auto;
   justify-items: end;
-  gap: 10px;
-  padding-top: 2px;
+  gap: 8px;
+  padding-top: 0;
 }
 
 .topbar-statuses,
@@ -834,12 +834,12 @@ input::placeholder {
 .save-status,
 .doc-stats {
   display: inline-flex;
-  height: 32px;
+  height: 28px;
   align-items: center;
   border: 1px solid var(--line-soft);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.54);
-  padding: 0 12px;
+  padding: 0 11px;
   white-space: nowrap;
 }
 
@@ -1694,17 +1694,16 @@ input[type="range"] {
 
 @media (max-width: 1180px) {
   .topbar {
-    align-items: stretch;
-    flex-direction: column;
+    gap: 14px;
   }
 
   .topbar-actions {
-    justify-items: start;
+    justify-items: end;
   }
 
   .topbar-statuses,
   .topbar-toolset {
-    justify-content: flex-start;
+    justify-content: flex-end;
   }
 }
 
@@ -1737,8 +1736,8 @@ input[type="range"] {
   }
 
   .topbar {
-    min-height: 82px;
-    padding: 20px 22px 14px;
+    min-height: 70px;
+    padding: 16px 22px 10px;
   }
 
   .editor-wrap {
