@@ -4,7 +4,12 @@
       "Bash(git rm *)",
       "Bash(git check-ignore *)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(git config *)",
+      "Bash(git ls-remote *)",
+      "Bash(curl -I -m 15 https://github.com)",
+      "Bash(nslookup github.com)",
+      "Bash(git push *)"
     ]
   }
 }
