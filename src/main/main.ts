@@ -33,7 +33,8 @@ const MAX_TEXT_FIELD_LENGTH = 500_000;
 const MAX_PIN_LENGTH = 128;
 const MAX_FOLDER_LENGTH = 40;
 const EDIT_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
-const ALLOWED_EXPORT_FORMATS = new Set(["html", "json", "txt", "md"]);
+const ALLOWED_EXPORT_FORMATS = new Set(["html", "json", "txt", "md", "pdf"]);
+const ALLOWED_BATCH_EXPORT_FORMATS = new Set(["html", "json", "txt", "md"]);
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 const DB_FLUSH_DELAY_MS = 900;
 
@@ -277,7 +278,7 @@ async function uniqueExportPath(directory: string, fileName: string) {
 }
 
 function isBatchExportFormat(value: unknown): value is BatchExportFormat {
-  return typeof value === "string" && ALLOWED_EXPORT_FORMATS.has(value);
+  return typeof value === "string" && ALLOWED_BATCH_EXPORT_FORMATS.has(value);
 }
 
 function plainDoc(text: string): NoteRecord["content"] {
@@ -621,6 +622,11 @@ function buildHtmlExport(note: NoteRecord) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${title}</title>
   <style>
+    @page {
+      size: A4;
+      margin: 18mm 16mm 20mm;
+    }
+
     :root {
       color-scheme: light;
       --bg: #f5f1e8;
@@ -822,7 +828,19 @@ function buildHtmlExport(note: NoteRecord) {
         margin: 0;
         padding: 0;
         border: 0;
+        border-radius: 0;
         box-shadow: none;
+        background: #fff;
+      }
+
+      header {
+        margin-bottom: 10mm;
+        padding-bottom: 6mm;
+      }
+
+      footer {
+        margin-top: 14mm;
+        padding-top: 5mm;
       }
     }
 
@@ -858,6 +876,45 @@ function buildHtmlExport(note: NoteRecord) {
   </article>
 </body>
 </html>`;
+}
+
+async function buildPdfExport(note: NoteRecord): Promise<Uint8Array> {
+  const window = new BrowserWindow({
+    show: false,
+    width: 960,
+    height: 1280,
+    backgroundColor: "#ffffff",
+    webPreferences: {
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      backgroundThrottling: false
+    }
+  });
+
+  try {
+    const html = buildHtmlExport(note);
+    await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    await window.webContents.executeJavaScript(
+      "document.fonts && document.fonts.ready ? document.fonts.ready.then(() => true) : Promise.resolve(true)",
+      true
+    );
+    return await window.webContents.printToPDF({
+      printBackground: true,
+      preferCSSPageSize: true,
+      pageSize: "A4",
+      margins: {
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0
+      }
+    });
+  } finally {
+    if (!window.isDestroyed()) {
+      window.destroy();
+    }
+  }
 }
 
 function normalizeNote(raw: Partial<NoteRecord>): NoteRecord {
@@ -1733,6 +1790,19 @@ async function lockContentForPrivacy() {
 }
 
 function createApplicationMenu() {
+  const exportNoteMenu: MenuItemConstructorOptions[] = [
+    { label: "导出 PDF", click: () => mainWindow?.webContents.send("menu:export-note", "pdf") },
+    { label: "导出 HTML", click: () => mainWindow?.webContents.send("menu:export-note", "html") },
+    { label: "导出 Markdown", click: () => mainWindow?.webContents.send("menu:export-note", "md") },
+    { label: "导出 TXT", click: () => mainWindow?.webContents.send("menu:export-note", "txt") },
+    { label: "导出 JSON", click: () => mainWindow?.webContents.send("menu:export-note", "json") }
+  ];
+  const batchExportMenu: MenuItemConstructorOptions[] = [
+    { label: "批量导出 Markdown", click: () => mainWindow?.webContents.send("menu:batch-export", "md") },
+    { label: "批量导出 HTML", click: () => mainWindow?.webContents.send("menu:batch-export", "html") },
+    { label: "批量导出 TXT", click: () => mainWindow?.webContents.send("menu:batch-export", "txt") },
+    { label: "批量导出 JSON", click: () => mainWindow?.webContents.send("menu:batch-export", "json") }
+  ];
   const template: MenuItemConstructorOptions[] = [
     {
       label: "文件",
@@ -1741,6 +1811,27 @@ function createApplicationMenu() {
           label: "新建记录",
           accelerator: "CommandOrControl+N",
           click: () => mainWindow?.webContents.send("menu:new-note")
+        },
+        {
+          label: "保存",
+          accelerator: "CommandOrControl+S",
+          click: () => mainWindow?.webContents.send("menu:save")
+        },
+        {
+          label: "版本历史",
+          click: () => mainWindow?.webContents.send("menu:history")
+        },
+        {
+          label: "导出当前记录",
+          submenu: exportNoteMenu
+        },
+        {
+          label: "批量导出记录",
+          submenu: batchExportMenu
+        },
+        {
+          label: "设置",
+          click: () => mainWindow?.webContents.send("menu:settings")
         },
         { type: "separator" },
         {
@@ -1920,9 +2011,12 @@ function registerIpc() {
       buttons: ["继续导出", "取消"],
       cancelId: 1,
       defaultId: 1,
-      title: "导出明文文件",
-      message: "导出的文件会以明文保存",
-      detail: "请确认保存位置安全，避免把包含隐私的记录导出到公共目录、同步盘或共享设备。"
+      title: payload.format === "pdf" ? "导出 PDF 文件" : "导出明文文件",
+      message: payload.format === "pdf" ? "导出的文件会保存为 PDF" : "导出的文件会以明文保存",
+      detail:
+        payload.format === "pdf"
+          ? "请确认保存位置安全，避免把包含隐私的记录导出到公共目录、同步盘或共享设备。"
+          : "请确认保存位置安全，避免把包含隐私的记录导出到公共目录、同步盘或共享设备。"
     };
     const warning = mainWindow
       ? await dialog.showMessageBox(mainWindow, warningOptions)
@@ -1942,6 +2036,12 @@ function registerIpc() {
       : await dialog.showSaveDialog(dialogOptions);
 
     if (result.canceled || !result.filePath) return null;
+
+    if (payload.format === "pdf") {
+      const pdf = await buildPdfExport(payload.note);
+      await atomicWriteBytes(result.filePath, pdf);
+      return result.filePath;
+    }
 
     const content =
       payload.format === "html"

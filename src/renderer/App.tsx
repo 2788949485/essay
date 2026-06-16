@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { EditorContent, useEditor } from "@tiptap/react";
+import { BubbleMenu, EditorContent, FloatingMenu, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
@@ -19,7 +19,6 @@ import {
   Code2,
   Download,
   EyeOff,
-  FileSearch,
   Folder,
   FolderOpen,
   Heading1,
@@ -39,14 +38,11 @@ import {
   Plus,
   Quote,
   Redo2,
-  Save,
   Search,
-  Settings,
   Star,
   StarOff,
   Strikethrough,
   Trash2,
-  Type,
   Underline as UnderlineIcon,
   Undo2,
   Upload
@@ -54,7 +50,7 @@ import {
 import type { AppSettings, BackupEntry, BatchExportFormat, NoteRecord } from "../shared/types";
 
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
-type ExportFormat = "html" | "json" | "txt" | "md";
+type ExportFormat = "html" | "json" | "txt" | "md" | "pdf";
 type ViewMode = "active" | "favorites" | "archive" | "trash" | "recent";
 type ActiveEditor = NonNullable<ReturnType<typeof useEditor>>;
 
@@ -67,6 +63,22 @@ type OutlineItem = {
   level: number;
   text: string;
   pos: number;
+};
+
+type BlockMenuCommand = {
+  id: string;
+  label: string;
+  hint: string;
+  run: () => void;
+};
+
+type ConfirmDialogState = {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  tone?: "default" | "danger";
+  icon?: "trash" | "history";
+  onConfirm: () => Promise<void> | void;
 };
 
 type SearchSyntax = {
@@ -159,6 +171,14 @@ function extractOutline(editor: ActiveEditor | null): OutlineItem[] {
     items.push({ level: Number(node.attrs.level) || 1, text, pos });
   });
   return items;
+}
+
+function isEmptyParagraphSelection(editor: ActiveEditor | null) {
+  if (!editor) return false;
+  const { empty, $from } = editor.state.selection;
+  if (!empty) return false;
+  if ($from.parent.type.name !== "paragraph") return false;
+  return $from.parent.textContent.trim() === "";
 }
 
 function formatHotkeyEvent(event: React.KeyboardEvent<HTMLInputElement>) {
@@ -259,8 +279,6 @@ export default function App() {
   const [hotkeyDraft, setHotkeyDraft] = useState("");
   const [hotkeyStatus, setHotkeyStatus] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [exportOpen, setExportOpen] = useState(false);
-  const [formatOpen, setFormatOpen] = useState(false);
   const [privacyLocked, setPrivacyLocked] = useState(false);
   const [privacyPinDraft, setPrivacyPinDraft] = useState("");
   const [clearPrivacyPin, setClearPrivacyPin] = useState(false);
@@ -280,6 +298,10 @@ export default function App() {
   const [outlineItems, setOutlineItems] = useState<OutlineItem[]>([]);
   const [outlineCollapsed, setOutlineCollapsed] = useState(false);
   const [editorText, setEditorText] = useState("");
+  const [blockMenuOpen, setBlockMenuOpen] = useState(false);
+  const [metaEditorOpen, setMetaEditorOpen] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const editorWrapRef = useRef<HTMLDivElement | null>(null);
   const outlineTimerRef = useRef<number | null>(null);
@@ -336,9 +358,17 @@ export default function App() {
         return true;
       }
     },
+    onSelectionUpdate: ({ editor }) => {
+      if (!isEmptyParagraphSelection(editor) || activeNote?.trashedAt) {
+        setBlockMenuOpen(false);
+      }
+    },
     onUpdate: ({ editor }) => {
       markDirty();
       setEditorText(editor.getText());
+      if (!isEmptyParagraphSelection(editor) || activeNote?.trashedAt) {
+        setBlockMenuOpen(false);
+      }
       if (outlineTimerRef.current) window.clearTimeout(outlineTimerRef.current);
       outlineTimerRef.current = window.setTimeout(() => {
         setOutlineItems(extractOutline(editor));
@@ -383,6 +413,7 @@ export default function App() {
     setTitle(activeNote.title);
     setTagsDraft(activeNote.tags.join(", "));
     setFolderDraft(activeNote.folder);
+    setMetaEditorOpen(false);
     editor.commands.setContent(activeNote.content, false);
     setEditorText(editor.getText());
     setOutlineItems(extractOutline(editor));
@@ -548,6 +579,46 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [saveActive, saveState]);
 
+  useEffect(() => {
+    const disposeSave =
+      typeof window.suiji.onSaveRequest === "function"
+        ? window.suiji.onSaveRequest(() => {
+            void saveActive();
+          })
+        : () => {};
+    const disposeSettings =
+      typeof window.suiji.onOpenSettings === "function"
+        ? window.suiji.onOpenSettings(() => {
+            setSettingsOpen(true);
+          })
+        : () => {};
+    const disposeHistory =
+      typeof window.suiji.onOpenHistory === "function"
+        ? window.suiji.onOpenHistory(() => {
+            void handleOpenHistory();
+          })
+        : () => {};
+    const disposeExport =
+      typeof window.suiji.onExportNote === "function"
+        ? window.suiji.onExportNote((format) => {
+            void handleExport(format);
+          })
+        : () => {};
+    const disposeBatchExport =
+      typeof window.suiji.onBatchExport === "function"
+        ? window.suiji.onBatchExport((format) => {
+            void handleBatchExport(format);
+          })
+        : () => {};
+    return () => {
+      disposeSave();
+      disposeSettings();
+      disposeHistory();
+      disposeExport();
+      disposeBatchExport();
+    };
+  }, [handleBatchExport, handleExport, handleOpenHistory, saveActive]);
+
   const searchSyntax = useMemo(() => parseSearchSyntax(query), [query]);
   const searchKeyword = searchSyntax.text;
   const ftsMatchedIdSet = useMemo(() => (ftsMatchedIds ? new Set(ftsMatchedIds) : null), [ftsMatchedIds]);
@@ -559,6 +630,9 @@ export default function App() {
       readingMinutes: chars ? Math.max(1, Math.ceil(chars / 500)) : 0
     };
   }, [editorText]);
+  const metaTagsPreview = useMemo(() => parseTagsInput(tagsDraft), [tagsDraft]);
+  const folderPreview = folderDraft.trim();
+  const hasMetaInfo = metaTagsPreview.length > 0 || Boolean(folderPreview);
 
   const filteredNotes = useMemo(() => {
     const keyword = searchSyntax.text;
@@ -753,11 +827,17 @@ export default function App() {
   async function handleDeleteNote(id: string) {
     const note = notes.find((item) => item.id === id);
     if (!note) return;
-    const ok = window.confirm(`移到回收站「${note.title}」？`);
-    if (!ok) return;
-
-    await window.suiji.deleteNote(id);
-    await reloadNotes(viewMode === "trash" ? "trash" : "active");
+    setConfirmDialog({
+      title: "移到回收站",
+      description: `「${note.title}」会从当前列表移到回收站，你之后仍然可以恢复。`,
+      confirmLabel: "移到回收站",
+      tone: "danger",
+      icon: "trash",
+      onConfirm: async () => {
+        await window.suiji.deleteNote(id);
+        await reloadNotes(viewMode === "trash" ? "trash" : "active");
+      }
+    });
   }
 
   async function handleTogglePin(id: string) {
@@ -791,14 +871,20 @@ export default function App() {
   async function handlePurgeNote(id: string) {
     const note = notes.find((item) => item.id === id);
     if (!note) return;
-    const ok = window.confirm(`永久删除「${note.title}」？此操作不可撤销。`);
-    if (!ok) return;
-    await window.suiji.purgeNote(id);
-    await reloadNotes("trash");
+    setConfirmDialog({
+      title: "永久删除记录",
+      description: `「${note.title}」会被彻底删除，历史版本和内容都无法恢复。`,
+      confirmLabel: "永久删除",
+      tone: "danger",
+      icon: "trash",
+      onConfirm: async () => {
+        await window.suiji.purgeNote(id);
+        await reloadNotes("trash");
+      }
+    });
   }
 
   async function handleExport(format: ExportFormat) {
-    setExportOpen(false);
     await saveActive({ skipClean: true });
     if (!activeNote || !editor) return;
     await window.suiji.exportNote({
@@ -816,7 +902,6 @@ export default function App() {
   }
 
   async function handleBatchExport(format: BatchExportFormat) {
-    setExportOpen(false);
     setDataActionStatus("正在批量导出...");
     await saveActive({ skipClean: true });
     const result = await window.suiji.batchExportNotes(format);
@@ -850,15 +935,6 @@ export default function App() {
     setHotkeyStatus("正在检测冲突...");
     const available = await window.suiji.testHotkey(next);
     setHotkeyStatus(available ? "快捷键可用" : "快捷键可能已被占用，建议更换");
-  }
-
-  async function updateTextSettings(patch: Partial<Pick<AppSettings, "fontFamily" | "fontSize" | "lineWidth" | "lineHeight">>) {
-    if (!settings) return;
-    const draft = { ...settings, ...patch };
-    setSettings(draft);
-    const next = await window.suiji.updateSettings(settingsPayload(draft, hotkeyDraft));
-    setSettings(next);
-    setHotkeyDraft(next.hotkey);
   }
 
   function jumpToOutline(item: OutlineItem) {
@@ -980,22 +1056,29 @@ export default function App() {
 
   async function handleRestoreHistory(entry: BackupEntry) {
     if (!activeNote) return;
-    const ok = window.confirm("恢复到这个历史版本？当前版本会先保存到备份。");
-    if (!ok) return;
-    const restored = await window.suiji.restoreNoteBackup(activeNote.id, entry.fileName);
-    setNotes((current) => sortNotes([restored, ...current.filter((note) => note.id !== restored.id)]));
-    setActiveId(restored.id);
-    setTitle(restored.title);
-    setTagsDraft(restored.tags.join(", "));
-    setFolderDraft(restored.folder);
-    editor?.commands.setContent(restored.content, false);
-    if (editor) {
-      setEditorText(editor.getText());
-      setOutlineItems(extractOutline(editor));
-    }
-    revisionRef.current = 0;
-    setSaveState("saved");
-    setHistoryOpen(false);
+    setConfirmDialog({
+      title: "恢复历史版本",
+      description: "当前内容会先自动备份，然后用这个历史版本覆盖编辑区。",
+      confirmLabel: "确认恢复",
+      tone: "default",
+      icon: "history",
+      onConfirm: async () => {
+        const restored = await window.suiji.restoreNoteBackup(activeNote.id, entry.fileName);
+        setNotes((current) => sortNotes([restored, ...current.filter((note) => note.id !== restored.id)]));
+        setActiveId(restored.id);
+        setTitle(restored.title);
+        setTagsDraft(restored.tags.join(", "));
+        setFolderDraft(restored.folder);
+        editor?.commands.setContent(restored.content, false);
+        if (editor) {
+          setEditorText(editor.getText());
+          setOutlineItems(extractOutline(editor));
+        }
+        revisionRef.current = 0;
+        setSaveState("saved");
+        setHistoryOpen(false);
+      }
+    });
   }
 
   async function handleUnlock() {
@@ -1045,6 +1128,84 @@ export default function App() {
     }
 
     editor.chain().focus().setTextSelection({ from, to }).extendMarkRange("link").setLink({ href: trimmedUrl }).run();
+  }
+
+  const blockMenuCommands: BlockMenuCommand[] = [
+    {
+      id: "heading-1",
+      label: "一级标题",
+      hint: "大标题",
+      run: () => editor?.chain().focus().toggleHeading({ level: 1 }).run()
+    },
+    {
+      id: "heading-2",
+      label: "二级标题",
+      hint: "分节标题",
+      run: () => editor?.chain().focus().toggleHeading({ level: 2 }).run()
+    },
+    {
+      id: "bullet-list",
+      label: "项目列表",
+      hint: "无序列表",
+      run: () => editor?.chain().focus().toggleBulletList().run()
+    },
+    {
+      id: "ordered-list",
+      label: "编号列表",
+      hint: "有序列表",
+      run: () => editor?.chain().focus().toggleOrderedList().run()
+    },
+    {
+      id: "task-list",
+      label: "任务列表",
+      hint: "待办事项",
+      run: () => editor?.chain().focus().toggleTaskList().run()
+    },
+    {
+      id: "blockquote",
+      label: "引用",
+      hint: "强调段落",
+      run: () => editor?.chain().focus().toggleBlockquote().run()
+    },
+    {
+      id: "code-block",
+      label: "代码块",
+      hint: "输入代码",
+      run: () => editor?.chain().focus().toggleCodeBlock().run()
+    },
+    {
+      id: "divider",
+      label: "分割线",
+      hint: "插入分隔",
+      run: () => editor?.chain().focus().setHorizontalRule().run()
+    },
+    {
+      id: "image",
+      label: "图片",
+      hint: "选择本地图片",
+      run: () => imageInputRef.current?.click()
+    }
+  ];
+
+  function applyBlockMenuCommand(command: BlockMenuCommand) {
+    setBlockMenuOpen(false);
+    command.run();
+  }
+
+  function closeConfirmDialog() {
+    if (confirmBusy) return;
+    setConfirmDialog(null);
+  }
+
+  async function runConfirmDialog() {
+    if (!confirmDialog || confirmBusy) return;
+    setConfirmBusy(true);
+    try {
+      await confirmDialog.onConfirm();
+      setConfirmDialog(null);
+    } finally {
+      setConfirmBusy(false);
+    }
   }
 
   const statusText =
@@ -1116,9 +1277,13 @@ export default function App() {
 
         <div className="search-box">
           <Search size={17} />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索记录" />
+          <div className="search-box-body">
+            <span className="search-box-label">检索</span>
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索记录" />
+          </div>
         </div>
 
+        <div className="sidebar-section-label">视图</div>
         <div className="view-switch" aria-label="记录视图">
           {[
             ["active", "记录", List],
@@ -1212,6 +1377,11 @@ export default function App() {
             ))}
           </div>
         ) : null}
+
+        <div className="sidebar-list-header">
+          <span>{viewMode === "recent" ? "最近编辑" : "记录列表"}</span>
+          <strong>{viewMode === "recent" ? recentNotes.length : filteredNotes.length}</strong>
+        </div>
 
         <nav className="note-list">
           {filteredNotes.map((note) => (
@@ -1354,303 +1524,55 @@ export default function App() {
               }}
               placeholder="未命名记录"
             />
-            <input
-              className="tags-input"
-              value={tagsDraft}
-              onChange={(event) => {
-                setTagsDraft(event.target.value);
-                markDirty();
-              }}
-              placeholder="标签，用逗号分隔"
-            />
-            <input
-              className="folder-input"
-              value={folderDraft}
-              onChange={(event) => {
-                setFolderDraft(event.target.value);
-                markDirty();
-              }}
-              placeholder="文件夹"
-            />
+            <div className="meta-summary-row">
+              <button
+                type="button"
+                className={metaEditorOpen ? "meta-summary is-open" : "meta-summary"}
+                onClick={() => setMetaEditorOpen((current) => !current)}
+              >
+                {folderPreview ? <span className="meta-chip meta-folder-chip">文件夹 · {folderPreview}</span> : null}
+                {metaTagsPreview.slice(0, 3).map((tag) => (
+                  <span key={tag} className="meta-chip">
+                    {tag}
+                  </span>
+                ))}
+                {metaTagsPreview.length > 3 ? <span className="meta-chip">+{metaTagsPreview.length - 3}</span> : null}
+                {!hasMetaInfo ? <span className="meta-summary-empty">添加标签和文件夹</span> : null}
+                <span className="meta-summary-action">{metaEditorOpen ? "收起属性" : "编辑属性"}</span>
+              </button>
+            </div>
+            {metaEditorOpen ? (
+              <div className="meta-input-row">
+                <input
+                  className="tags-input"
+                  value={tagsDraft}
+                  onChange={(event) => {
+                    setTagsDraft(event.target.value);
+                    markDirty();
+                  }}
+                  placeholder="标签，用逗号分隔"
+                />
+                <input
+                  className="folder-input"
+                  value={folderDraft}
+                  onChange={(event) => {
+                    setFolderDraft(event.target.value);
+                    markDirty();
+                  }}
+                  placeholder="文件夹"
+                />
+              </div>
+            ) : null}
           </div>
           <div className="topbar-actions">
-            <span className={`save-status ${saveState}`}>{statusText}</span>
-            <span className="doc-stats">
-              {editorStats.chars} 字 · 阅读 {editorStats.readingMinutes} 分钟
-            </span>
-            {activeNote && !activeNote.trashedAt ? (
-              <>
-                <button
-                  className={activeNote.favoriteAt ? "icon-button is-active" : "icon-button"}
-                  title={activeNote.favoriteAt ? "取消收藏" : "收藏"}
-                  aria-label={activeNote.favoriteAt ? "取消收藏" : "收藏"}
-                  onClick={() => void handleToggleFavorite(activeNote.id)}
-                >
-                  {activeNote.favoriteAt ? <StarOff size={18} /> : <Star size={18} />}
-                </button>
-                <button
-                  className={activeNote.archivedAt ? "icon-button is-active" : "icon-button"}
-                  title={activeNote.archivedAt ? "取消归档" : "归档"}
-                  aria-label={activeNote.archivedAt ? "取消归档" : "归档"}
-                  onClick={() => void handleToggleArchive(activeNote.id)}
-                >
-                  {activeNote.archivedAt ? <ArchiveRestore size={18} /> : <Archive size={18} />}
-                </button>
-              </>
-            ) : null}
-            {activeNote ? (
-              <button className="icon-button" title="版本历史" aria-label="版本历史" onClick={() => void handleOpenHistory()}>
-                <Clock size={18} />
-              </button>
-            ) : null}
-            <button className="icon-button" title="立即保存" aria-label="立即保存" onClick={() => void saveActive()}>
-              <Save size={18} />
-            </button>
-            <button className="icon-button" title="设置" aria-label="设置" onClick={() => setSettingsOpen(true)}>
-              <Settings size={18} />
-            </button>
+            <div className="topbar-statuses">
+              <span className={`save-status ${saveState}`}>{statusText}</span>
+              <span className="doc-stats">
+                {editorStats.chars} 字 · 阅读 {editorStats.readingMinutes} 分钟
+              </span>
+            </div>
           </div>
         </header>
-
-        <div className="toolbar">
-          <div className="toolbar-tools" aria-label="编辑工具">
-            <ToolbarButton title="撤销" disabled={!editor?.can().undo()} onClick={() => editor?.chain().focus().undo().run()}>
-              <Undo2 size={17} />
-            </ToolbarButton>
-            <ToolbarButton title="重做" disabled={!editor?.can().redo()} onClick={() => editor?.chain().focus().redo().run()}>
-              <Redo2 size={17} />
-            </ToolbarButton>
-            <span className="toolbar-separator" />
-            <ToolbarButton
-              title="一级标题"
-              active={editor?.isActive("heading", { level: 1 })}
-              onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
-            >
-              <Heading1 size={17} />
-            </ToolbarButton>
-            <ToolbarButton
-              title="二级标题"
-              active={editor?.isActive("heading", { level: 2 })}
-              onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
-            >
-              <Heading2 size={17} />
-            </ToolbarButton>
-            <ToolbarButton title="加粗" active={editor?.isActive("bold")} onClick={() => editor?.chain().focus().toggleBold().run()}>
-              <Bold size={17} />
-            </ToolbarButton>
-            <ToolbarButton title="斜体" active={editor?.isActive("italic")} onClick={() => editor?.chain().focus().toggleItalic().run()}>
-              <Italic size={17} />
-            </ToolbarButton>
-            <ToolbarButton
-              title="下划线"
-              active={editor?.isActive("underline")}
-              onClick={() => editor?.chain().focus().toggleUnderline().run()}
-            >
-              <UnderlineIcon size={17} />
-            </ToolbarButton>
-            <ToolbarButton title="删除线" active={editor?.isActive("strike")} onClick={() => editor?.chain().focus().toggleStrike().run()}>
-              <Strikethrough size={17} />
-            </ToolbarButton>
-            <ToolbarButton title="高亮" active={editor?.isActive("highlight")} onClick={() => editor?.chain().focus().toggleHighlight().run()}>
-              <Highlighter size={17} />
-            </ToolbarButton>
-            <span className="toolbar-separator" />
-            <ToolbarButton
-              title="项目符号列表"
-              active={editor?.isActive("bulletList")}
-              onClick={() => editor?.chain().focus().toggleBulletList().run()}
-            >
-              <List size={17} />
-            </ToolbarButton>
-            <ToolbarButton
-              title="编号列表"
-              active={editor?.isActive("orderedList")}
-              onClick={() => editor?.chain().focus().toggleOrderedList().run()}
-            >
-              <ListOrdered size={17} />
-            </ToolbarButton>
-            <ToolbarButton
-              title="任务列表"
-              active={editor?.isActive("taskList")}
-              onClick={() => editor?.chain().focus().toggleTaskList().run()}
-            >
-              <CheckSquare size={17} />
-            </ToolbarButton>
-            <ToolbarButton
-              title="引用"
-              active={editor?.isActive("blockquote")}
-              onClick={() => editor?.chain().focus().toggleBlockquote().run()}
-            >
-              <Quote size={17} />
-            </ToolbarButton>
-            <ToolbarButton
-              title="代码块"
-              active={editor?.isActive("codeBlock")}
-              onClick={() => editor?.chain().focus().toggleCodeBlock().run()}
-            >
-              <Code2 size={17} />
-            </ToolbarButton>
-            <ToolbarButton title="分割线" onClick={() => editor?.chain().focus().setHorizontalRule().run()}>
-              <Minus size={17} />
-            </ToolbarButton>
-            <ToolbarButton
-              title="链接"
-              active={editor?.isActive("link")}
-              onClick={handleLink}
-            >
-              <Link2 size={17} />
-            </ToolbarButton>
-            <ToolbarButton
-              title="查找和替换"
-              active={findOpen}
-              onClick={() => {
-                setFindOpen((current) => !current);
-                setReplaceOpen(false);
-              }}
-            >
-              <FileSearch size={17} />
-            </ToolbarButton>
-            <ToolbarButton title="插入图片" onClick={() => imageInputRef.current?.click()}>
-              <ImagePlus size={17} />
-            </ToolbarButton>
-            <input
-              ref={imageInputRef}
-              className="hidden-file-input"
-              type="file"
-              accept="image/*"
-              onChange={(event) => {
-                void handleInsertImage(event.target.files?.[0]);
-                event.currentTarget.value = "";
-              }}
-            />
-          </div>
-          <div
-            className="format-menu-wrap"
-            onBlur={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                setFormatOpen(false);
-              }
-            }}
-          >
-            <button
-              className={formatOpen ? "format-button is-open" : "format-button"}
-              type="button"
-              aria-haspopup="menu"
-              aria-expanded={formatOpen}
-              onClick={() => setFormatOpen((current) => !current)}
-            >
-              <Type size={16} />
-              <span>版式</span>
-              <ChevronDown size={14} />
-            </button>
-            {formatOpen ? (
-              <div className="format-menu" role="menu">
-                <label>
-                  <span>默认字体</span>
-                  <select
-                    value={settings?.fontFamily ?? ""}
-                    onChange={(event) => void updateTextSettings({ fontFamily: event.target.value })}
-                  >
-                    <option value="">系统字体</option>
-                    <option value={'"Microsoft YaHei", "PingFang SC", sans-serif'}>微软雅黑</option>
-                    <option value={'"SimSun", "Songti SC", serif'}>宋体</option>
-                    <option value={'"KaiTi", "Kaiti SC", serif'}>楷体</option>
-                    <option value={'"Consolas", "Cascadia Code", monospace'}>等宽</option>
-                  </select>
-                </label>
-                <label>
-                  <span>字号 {settings?.fontSize ?? 16}px</span>
-                  <input
-                    type="range"
-                    min={13}
-                    max={24}
-                    step={1}
-                    value={settings?.fontSize ?? 16}
-                    onChange={(event) => void updateTextSettings({ fontSize: Number(event.target.value) })}
-                  />
-                </label>
-                <label>
-                  <span>行宽 {settings?.lineWidth ?? 880}px</span>
-                  <input
-                    type="range"
-                    min={640}
-                    max={1200}
-                    step={20}
-                    value={settings?.lineWidth ?? 880}
-                    onChange={(event) => void updateTextSettings({ lineWidth: Number(event.target.value) })}
-                  />
-                </label>
-                <label>
-                  <span>行高 {settings?.lineHeight ?? 1.72}</span>
-                  <input
-                    type="range"
-                    min={1.35}
-                    max={2.2}
-                    step={0.05}
-                    value={settings?.lineHeight ?? 1.72}
-                    onChange={(event) => void updateTextSettings({ lineHeight: Number(event.target.value) })}
-                  />
-                </label>
-              </div>
-            ) : null}
-          </div>
-          <div
-            className="export-menu-wrap"
-            onBlur={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                setExportOpen(false);
-              }
-            }}
-          >
-            <button
-              className={exportOpen ? "export-button is-open" : "export-button"}
-              type="button"
-              aria-haspopup="menu"
-              aria-expanded={exportOpen}
-              onClick={() => setExportOpen((current) => !current)}
-            >
-              <span>导出</span>
-              <Download size={17} />
-            </button>
-            {exportOpen ? (
-              <div className="export-menu" role="menu">
-                {[
-                  ["html", "HTML"],
-                  ["md", "MD"],
-                  ["txt", "TXT"],
-                  ["json", "JSON"]
-                ].map(([format, label]) => (
-                  <button
-                    key={format}
-                    type="button"
-                    role="menuitem"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => void handleExport(format as ExportFormat)}
-                  >
-                    {label}
-                  </button>
-                ))}
-                <div className="export-menu-divider" />
-                {[
-                  ["md", "批量 MD"],
-                  ["html", "批量 HTML"],
-                  ["txt", "批量 TXT"],
-                  ["json", "批量 JSON"]
-                ].map(([format, label]) => (
-                  <button
-                    key={`batch-${format}`}
-                    type="button"
-                    role="menuitem"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => void handleBatchExport(format as BatchExportFormat)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        </div>
 
         {findOpen ? (
           <div className="find-panel">
@@ -1731,6 +1653,109 @@ export default function App() {
           }}
           onClick={() => editor?.commands.focus()}
         >
+          <input
+            ref={imageInputRef}
+            className="hidden-file-input"
+            type="file"
+            accept="image/*"
+            onChange={(event) => {
+              void handleInsertImage(event.target.files?.[0]);
+              event.currentTarget.value = "";
+            }}
+          />
+          {editor ? (
+            <FloatingMenu
+              editor={editor}
+              tippyOptions={{ duration: 120, placement: "left-start", maxWidth: "none", offset: [0, 8] }}
+              shouldShow={({ editor }) => isEmptyParagraphSelection(editor) && !activeNote?.trashedAt}
+            >
+              <div className="block-insert-anchor">
+                <button
+                  type="button"
+                  className={blockMenuOpen ? "block-insert-trigger is-open" : "block-insert-trigger"}
+                  aria-label="插入块"
+                  title="插入块"
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    setBlockMenuOpen((current) => !current);
+                  }}
+                >
+                  <Plus size={15} />
+                </button>
+                {blockMenuOpen ? (
+                  <div className="block-insert-menu" aria-label="块格式菜单">
+                    {blockMenuCommands.map((command) => (
+                      <button
+                        key={command.id}
+                        type="button"
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          applyBlockMenuCommand(command);
+                        }}
+                      >
+                        <strong>{command.label}</strong>
+                        <span>{command.hint}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </FloatingMenu>
+          ) : null}
+          {editor ? (
+            <BubbleMenu
+              editor={editor}
+              tippyOptions={{ duration: 120, placement: "top", maxWidth: "none" }}
+              shouldShow={({ editor }) => {
+                const { empty } = editor.state.selection;
+                return !empty && !activeNote?.trashedAt;
+              }}
+            >
+              <div className="selection-toolbar" aria-label="文本格式工具">
+                <ToolbarButton title="一级标题" active={editor.isActive("heading", { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>
+                  <Heading1 size={16} />
+                </ToolbarButton>
+                <ToolbarButton title="二级标题" active={editor.isActive("heading", { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>
+                  <Heading2 size={16} />
+                </ToolbarButton>
+                <span className="selection-toolbar-separator" />
+                <ToolbarButton title="加粗" active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}>
+                  <Bold size={16} />
+                </ToolbarButton>
+                <ToolbarButton title="斜体" active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()}>
+                  <Italic size={16} />
+                </ToolbarButton>
+                <ToolbarButton title="下划线" active={editor.isActive("underline")} onClick={() => editor.chain().focus().toggleUnderline().run()}>
+                  <UnderlineIcon size={16} />
+                </ToolbarButton>
+                <ToolbarButton title="删除线" active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()}>
+                  <Strikethrough size={16} />
+                </ToolbarButton>
+                <ToolbarButton title="高亮" active={editor.isActive("highlight")} onClick={() => editor.chain().focus().toggleHighlight().run()}>
+                  <Highlighter size={16} />
+                </ToolbarButton>
+                <ToolbarButton title="链接" active={editor.isActive("link")} onClick={handleLink}>
+                  <Link2 size={16} />
+                </ToolbarButton>
+                <span className="selection-toolbar-separator" />
+                <ToolbarButton title="项目列表" active={editor.isActive("bulletList")} onClick={() => editor.chain().focus().toggleBulletList().run()}>
+                  <List size={16} />
+                </ToolbarButton>
+                <ToolbarButton title="编号列表" active={editor.isActive("orderedList")} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
+                  <ListOrdered size={16} />
+                </ToolbarButton>
+                <ToolbarButton title="任务列表" active={editor.isActive("taskList")} onClick={() => editor.chain().focus().toggleTaskList().run()}>
+                  <CheckSquare size={16} />
+                </ToolbarButton>
+                <ToolbarButton title="引用" active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()}>
+                  <Quote size={16} />
+                </ToolbarButton>
+                <ToolbarButton title="代码块" active={editor.isActive("codeBlock")} onClick={() => editor.chain().focus().toggleCodeBlock().run()}>
+                  <Code2 size={16} />
+                </ToolbarButton>
+              </div>
+            </BubbleMenu>
+          ) : null}
           {editor ? <EditorContent editor={editor} /> : null}
         </div>
         {outlineItems.length > 0 ? (
@@ -1769,7 +1794,11 @@ export default function App() {
       {settingsOpen ? (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setSettingsOpen(false)}>
           <div className="modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-            <h2>设置</h2>
+            <div className="modal-header">
+              <span className="modal-kicker">偏好与数据</span>
+              <h2>设置</h2>
+              <p className="modal-description">统一管理快捷键、隐私保护和本地数据目录。</p>
+            </div>
             <label>
               <span>全局快捷键</span>
               <input
@@ -1894,7 +1923,11 @@ export default function App() {
       {historyOpen ? (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setHistoryOpen(false)}>
           <div className="modal history-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-            <h2>版本历史</h2>
+            <div className="modal-header">
+              <span className="modal-kicker">文稿回溯</span>
+              <h2>版本历史</h2>
+              <p className="modal-description">选择一个历史快照恢复，当前内容会先自动备份。</p>
+            </div>
             {historyStatus ? <p className="history-status">{historyStatus}</p> : null}
             <div className="history-list">
               {historyEntries.map((entry) => (
@@ -1912,6 +1945,33 @@ export default function App() {
             <div className="modal-actions">
               <button type="button" onClick={() => setHistoryOpen(false)}>
                 关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmDialog ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={closeConfirmDialog}>
+          <div className="modal confirm-modal" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+            <div className={confirmDialog.tone === "danger" ? "confirm-icon danger" : "confirm-icon"}>
+              {confirmDialog.icon === "history" ? <ArchiveRestore size={20} /> : <Trash2 size={20} />}
+            </div>
+            <div className="confirm-copy">
+              <h2>{confirmDialog.title}</h2>
+              <p>{confirmDialog.description}</p>
+            </div>
+            <div className="modal-actions">
+              <button type="button" onClick={closeConfirmDialog} disabled={confirmBusy}>
+                取消
+              </button>
+              <button
+                type="button"
+                className={confirmDialog.tone === "danger" ? "danger-primary" : "primary"}
+                onClick={() => void runConfirmDialog()}
+                disabled={confirmBusy}
+              >
+                {confirmBusy ? "处理中..." : confirmDialog.confirmLabel}
               </button>
             </div>
           </div>

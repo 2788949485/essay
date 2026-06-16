@@ -51,7 +51,7 @@ export type BatchExportFormat = "html" | "json" | "txt" | "md";
 
 export type ExportPayload = {
   note: NoteRecord;
-  format: "html" | "json" | "txt" | "md";
+  format: "html" | "json" | "txt" | "md" | "pdf";
 };
 
 export type NotesBackup = {

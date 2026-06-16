@@ -59,6 +59,41 @@ const api = {
       ipcRenderer.removeListener("menu:replace", listener);
     };
   },
+  onSaveRequest: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on("menu:save", listener);
+    return () => {
+      ipcRenderer.removeListener("menu:save", listener);
+    };
+  },
+  onOpenSettings: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on("menu:settings", listener);
+    return () => {
+      ipcRenderer.removeListener("menu:settings", listener);
+    };
+  },
+  onOpenHistory: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on("menu:history", listener);
+    return () => {
+      ipcRenderer.removeListener("menu:history", listener);
+    };
+  },
+  onExportNote: (callback: (format: ExportPayload["format"]) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, format: ExportPayload["format"]) => callback(format);
+    ipcRenderer.on("menu:export-note", listener);
+    return () => {
+      ipcRenderer.removeListener("menu:export-note", listener);
+    };
+  },
+  onBatchExport: (callback: (format: BatchExportFormat) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, format: BatchExportFormat) => callback(format);
+    ipcRenderer.on("menu:batch-export", listener);
+    return () => {
+      ipcRenderer.removeListener("menu:batch-export", listener);
+    };
+  },
   onPrivacyLock: (callback: () => void) => {
     const listener = () => callback();
     ipcRenderer.on("privacy:lock", listener);
