@@ -11,7 +11,20 @@
       "Bash(nslookup github.com)",
       "Bash(git push *)",
       "Bash(git show-ref *)",
-      "Bash(git update-ref *)"
+      "Bash(git update-ref *)",
+      "Bash(curl -sS -o /dev/null -w \"github.com -> HTTP %{http_code}, total %{time_total}s\\\\n\" --max-time 15 https://github.com)",
+      "Bash(echo \"curl failed: $?\")",
+      "Bash(ping -n 2 github.com)",
+      "Bash(netstat -ano -p tcp)",
+      "Bash(tasklist /FI \"PID eq 9452\" /FO CSV)",
+      "Bash(curl *)",
+      "Bash(git rev-list *)",
+      "Bash(git tag *)",
+      "Bash(FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch *)",
+      "Bash(git stash *)",
+      "Bash(awk '{print $1}')",
+      "Bash(git cat-file *)",
+      "Bash(awk '$1 > 50000000 {print}')"
     ]
   }
 }
