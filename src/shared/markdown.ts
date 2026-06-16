@@ -79,6 +79,28 @@ function renderTaskItems(items: JSONContent[] = [], depth = 0): string {
     .join("\n");
 }
 
+function escapeTableCell(value: string) {
+  return value.replace(/\|/g, "\\|").replace(/\n+/g, "<br>").trim();
+}
+
+function renderTableCell(node: JSONContent) {
+  return escapeTableCell(renderInline(node).trim());
+}
+
+function renderTable(node: JSONContent) {
+  const rows = node.content ?? [];
+  if (!rows.length) return "";
+
+  const cells = rows.map((row) => (row.content ?? []).map(renderTableCell));
+  const columnCount = Math.max(...cells.map((row) => row.length), 1);
+  const normalizeRow = (row: string[]) => Array.from({ length: columnCount }, (_, index) => row[index] ?? "");
+  const header = normalizeRow(cells[0]);
+  const body = cells.slice(1).map(normalizeRow);
+  const separator = Array.from({ length: columnCount }, () => "---");
+
+  return [header, separator, ...body].map((row) => `| ${row.join(" | ")} |`).join("\n");
+}
+
 function renderBlock(node: JSONContent, depth = 0): string {
   const children = node.content ?? [];
 
@@ -105,6 +127,8 @@ function renderBlock(node: JSONContent, depth = 0): string {
       const checked = node.attrs?.checked ? "x" : " ";
       return renderListItem(node, `- [${checked}]`, depth);
     }
+    case "table":
+      return renderTable(node);
     case "blockquote":
       return children
         .map((child) => renderBlock(child, depth))

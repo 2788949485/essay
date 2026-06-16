@@ -37,6 +37,8 @@ const ALLOWED_EXPORT_FORMATS = new Set(["html", "json", "txt", "md", "pdf"]);
 const ALLOWED_BATCH_EXPORT_FORMATS = new Set(["html", "json", "txt", "md"]);
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 const DB_FLUSH_DELAY_MS = 900;
+const DEBUG_LOG_PATH = process.env.SUIJI_DEBUG_LOG || "d:\\zhuomian\\essay\\runtime_cache\\suiji-debug.log";
+const DEBUG_PORT = process.env.SUIJI_DEBUG_PORT || "";
 
 type StoredSettings = Omit<AppSettings, "hasPrivacyPin"> & {
   privacyPinHash: string | null;
@@ -79,9 +81,15 @@ type StorageConfig = {
 };
 
 const gotTheLock = app.requestSingleInstanceLock();
+writeDebugLog(`startup gotTheLock=${gotTheLock} argv=${process.argv.join(" ")}`);
 
 if (!gotTheLock) {
+  writeDebugLog("quit because another instance owns the lock");
   app.quit();
+}
+
+if (DEBUG_PORT) {
+  app.commandLine.appendSwitch("remote-debugging-port", DEBUG_PORT);
 }
 
 const emptyDoc = {
@@ -98,6 +106,12 @@ function assetPath(fileName: string) {
     return path.join(process.resourcesPath, "build", fileName);
   }
   return path.join(app.getAppPath(), "build", fileName);
+}
+
+function writeDebugLog(message: string) {
+  if (!DEBUG_LOG_PATH) return;
+  const line = `[${new Date().toISOString()}] ${message}\n`;
+  void fs.appendFile(DEBUG_LOG_PATH, line, "utf8").catch(() => {});
 }
 
 function defaultDataRoot() {
@@ -293,6 +307,43 @@ function plainDoc(text: string): NoteRecord["content"] {
   };
 }
 
+function splitMarkdownTableRow(line: string) {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim().replace(/\\\|/g, "|"));
+}
+
+function isMarkdownTableSeparator(line: string) {
+  const cells = splitMarkdownTableRow(line);
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+}
+
+function tableCellNode(type: "tableHeader" | "tableCell", text: string) {
+  return {
+    type,
+    content: [
+      {
+        type: "paragraph",
+        content: text ? [{ type: "text", text }] : undefined
+      }
+    ]
+  };
+}
+
+function markdownTableToDocRows(lines: string[]) {
+  const rows = [lines[0], ...lines.slice(2)].map(splitMarkdownTableRow);
+  const columnCount = Math.max(...rows.map((row) => row.length), 1);
+  return rows.map((row, rowIndex) => ({
+    type: "tableRow",
+    content: Array.from({ length: columnCount }, (_, index) =>
+      tableCellNode(rowIndex === 0 ? "tableHeader" : "tableCell", row[index] ?? "")
+    )
+  }));
+}
+
 function markdownToDoc(markdown: string): NoteRecord["content"] {
   const blocks: NonNullable<NoteRecord["content"]["content"]> = [];
   let pendingParagraph: string[] = [];
@@ -305,10 +356,28 @@ function markdownToDoc(markdown: string): NoteRecord["content"] {
     pendingParagraph = [];
   };
 
-  for (const rawLine of markdown.split(/\r?\n/)) {
+  const lines = markdown.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const rawLine = lines[index];
     const line = rawLine.trimEnd();
     if (!line.trim()) {
       flushParagraph();
+      continue;
+    }
+
+    if (line.includes("|") && lines[index + 1] && isMarkdownTableSeparator(lines[index + 1])) {
+      flushParagraph();
+      const tableLines = [line, lines[index + 1].trimEnd()];
+      index += 2;
+      while (index < lines.length && lines[index].includes("|") && lines[index].trim()) {
+        tableLines.push(lines[index].trimEnd());
+        index += 1;
+      }
+      index -= 1;
+      blocks.push({
+        type: "table",
+        content: markdownTableToDocRows(tableLines)
+      });
       continue;
     }
 
@@ -555,6 +624,24 @@ function renderTaskItemHtml(node: JsonNode): string {
   return `<li><label><input type="checkbox"${checked} disabled></label><div>${children.map(renderBlockHtml).join("") || "<p></p>"}</div></li>`;
 }
 
+function renderTableCellHtml(node: JsonNode) {
+  const tag = node.type === "tableHeader" ? "th" : "td";
+  const colspan = Number(node.attrs?.colspan ?? 1);
+  const rowspan = Number(node.attrs?.rowspan ?? 1);
+  const attrs = [
+    colspan > 1 ? ` colspan="${colspan}"` : "",
+    rowspan > 1 ? ` rowspan="${rowspan}"` : ""
+  ].join("");
+  return `<${tag}${attrs}>${(node.content ?? []).map(renderBlockHtml).join("") || "<p></p>"}</${tag}>`;
+}
+
+function renderTableHtml(node: JsonNode) {
+  const rows = (node.content ?? [])
+    .map((row) => `<tr>${(row.content ?? []).map(renderTableCellHtml).join("")}</tr>`)
+    .join("");
+  return rows ? `<table><tbody>${rows}</tbody></table>` : "";
+}
+
 function renderBlockHtml(node: JsonNode): string {
   const children = node.content ?? [];
 
@@ -579,6 +666,8 @@ function renderBlockHtml(node: JsonNode): string {
       return renderListItemHtml(node);
     case "taskItem":
       return renderTaskItemHtml(node);
+    case "table":
+      return renderTableHtml(node);
     case "codeBlock":
       return `<pre><code>${escapeHtml(children.map((child) => child.text ?? "").join(""))}</code></pre>`;
     case "horizontalRule":
@@ -742,9 +831,35 @@ function buildHtmlExport(note: NoteRecord) {
     blockquote {
       margin: 20px 0;
       padding: 12px 18px;
-      border-left: 4px solid #d39d51;
-      background: #fbf3e4;
-      color: #4d4a42;
+      border-left: 4px solid #2f6b5b;
+      background: #eef5f3;
+      color: #47515a;
+    }
+
+    table {
+      width: 100%;
+      margin: 20px 0;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    th, td {
+      border: 1px solid var(--line);
+      padding: 9px 11px;
+      vertical-align: top;
+    }
+
+    th {
+      background: #edf3f6;
+      font-weight: 700;
+    }
+
+    td {
+      background: #ffffff;
+    }
+
+    th > *, td > * {
+      margin-bottom: 0;
     }
 
     ul, ol {
@@ -777,7 +892,7 @@ function buildHtmlExport(note: NoteRecord) {
     code {
       padding: 2px 5px;
       border-radius: 4px;
-      background: #eee5d5;
+      background: #edf2f5;
       font-family: "Cascadia Code", Consolas, monospace;
       font-size: 0.92em;
     }
@@ -1708,6 +1823,22 @@ async function changeDataFolder() {
 }
 
 function setupWebContentsGuards(window: BrowserWindow) {
+  window.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    writeDebugLog(`console level=${level} ${sourceId}:${line} ${message}`);
+  });
+
+  window.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+    writeDebugLog(`did-fail-load code=${errorCode} description=${errorDescription} url=${validatedURL}`);
+  });
+
+  window.webContents.on("render-process-gone", (_event, details) => {
+    writeDebugLog(`render-process-gone reason=${details.reason} exitCode=${details.exitCode}`);
+  });
+
+  window.webContents.on("did-finish-load", () => {
+    writeDebugLog("did-finish-load");
+  });
+
   window.webContents.on("will-attach-webview", (event) => {
     event.preventDefault();
   });

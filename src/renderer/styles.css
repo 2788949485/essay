@@ -2,7 +2,7 @@
   color: #1f2224;
   background:
     radial-gradient(circle at top, rgba(255, 255, 255, 0.78), transparent 48%),
-    linear-gradient(180deg, #f3f0ea 0%, #ebe6de 100%);
+    linear-gradient(180deg, #f4f7f8 0%, #e8edf1 100%);
   font-family:
     "SF Pro Text", "PingFang SC", "Helvetica Neue", "Microsoft YaHei UI", "Segoe UI", sans-serif;
   font-synthesis: none;
@@ -51,38 +51,38 @@ input::placeholder {
 }
 
 .app-shell {
-  --app-bg: #ede7de;
-  --chrome-surface: rgba(252, 249, 244, 0.78);
-  --panel-bg: rgba(248, 245, 239, 0.92);
-  --panel-border: rgba(128, 113, 88, 0.12);
+  --app-bg: #e8edf1;
+  --chrome-surface: rgba(248, 250, 252, 0.8);
+  --panel-bg: rgba(247, 250, 252, 0.92);
+  --panel-border: rgba(91, 105, 120, 0.12);
   --panel-inset: rgba(255, 255, 255, 0.64);
   --surface-soft: rgba(255, 255, 255, 0.78);
-  --surface-muted: rgba(244, 239, 231, 0.84);
+  --surface-muted: rgba(238, 243, 246, 0.84);
   --surface-hover: rgba(255, 255, 255, 0.98);
-  --surface-active: rgba(242, 236, 226, 0.98);
-  --surface-raised: rgba(255, 252, 247, 0.98);
-  --paper-bg: rgba(255, 253, 249, 0.98);
-  --paper-border: rgba(123, 109, 86, 0.11);
+  --surface-active: rgba(231, 238, 242, 0.98);
+  --surface-raised: rgba(251, 253, 254, 0.98);
+  --paper-bg: rgba(255, 255, 255, 0.98);
+  --paper-border: rgba(91, 105, 120, 0.11);
   --text-color: #1f2326;
   --muted-text: #687078;
-  --subtle-text: #8a8072;
+  --subtle-text: #778391;
   --accent-color: #2f6b5b;
   --accent-strong: #245346;
   --accent-soft: rgba(47, 107, 91, 0.1);
   --accent-soft-strong: rgba(47, 107, 91, 0.16);
-  --warning-color: #b8843b;
+  --warning-color: #4f6f8f;
   --danger-color: #b94b37;
   --link-color: #2f6db1;
-  --line-soft: rgba(118, 105, 83, 0.09);
-  --line-strong: rgba(118, 105, 83, 0.16);
+  --line-soft: rgba(91, 105, 120, 0.09);
+  --line-strong: rgba(91, 105, 120, 0.16);
   --selection-bg: rgba(47, 107, 91, 0.18);
-  --highlight-bg: #f6d98f;
-  --code-bg: #f1ece2;
+  --highlight-bg: #cdeee3;
+  --code-bg: #edf2f5;
   --pre-bg: #213029;
-  --pre-text: #f4efe5;
-  --shadow-soft: 0 20px 56px rgba(64, 52, 36, 0.08);
-  --shadow-floating: 0 26px 66px rgba(64, 52, 36, 0.14);
-  --shadow-paper: 0 28px 72px rgba(72, 56, 36, 0.11);
+  --pre-text: #eef3f2;
+  --shadow-soft: 0 20px 56px rgba(31, 41, 55, 0.08);
+  --shadow-floating: 0 26px 66px rgba(31, 41, 55, 0.14);
+  --shadow-paper: 0 28px 72px rgba(31, 41, 55, 0.1);
   --backdrop: rgba(31, 34, 36, 0.28);
   display: grid;
   grid-template-columns: clamp(268px, 28vw, 320px) minmax(0, 1fr);
@@ -93,8 +93,8 @@ input::placeholder {
   overflow: hidden;
   background:
     radial-gradient(circle at top left, rgba(255, 255, 255, 0.92), transparent 34%),
-    radial-gradient(circle at right, rgba(222, 214, 199, 0.32), transparent 28%),
-    linear-gradient(180deg, #f4f0e8 0%, var(--app-bg) 100%);
+    radial-gradient(circle at right, rgba(198, 209, 219, 0.28), transparent 28%),
+    linear-gradient(180deg, #f7fafc 0%, var(--app-bg) 100%);
   color: var(--text-color);
   padding: 14px;
   transition: grid-template-columns 180ms ease;
@@ -120,13 +120,13 @@ input::placeholder {
   --accent-strong: #a1d5c2;
   --accent-soft: rgba(134, 188, 171, 0.14);
   --accent-soft-strong: rgba(134, 188, 171, 0.22);
-  --warning-color: #d6b16a;
+  --warning-color: #8fb4d6;
   --danger-color: #f08c77;
   --link-color: #95beff;
   --line-soft: rgba(255, 255, 255, 0.08);
   --line-strong: rgba(255, 255, 255, 0.12);
   --selection-bg: rgba(134, 188, 171, 0.22);
-  --highlight-bg: #705622;
+  --highlight-bg: #245a52;
   --code-bg: #293039;
   --pre-bg: #12161b;
   --pre-text: #edf1f4;
@@ -1253,9 +1253,59 @@ input[type="range"] {
 
 .editor-surface blockquote {
   margin: 24px 0;
-  border-left: 3px solid rgba(184, 132, 59, 0.52);
+  border-left: 3px solid var(--accent-color);
   color: var(--muted-text);
   padding-left: 18px;
+}
+
+.editor-surface table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  margin: 24px 0;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+}
+
+.editor-surface th,
+.editor-surface td {
+  min-width: 96px;
+  border: 1px solid var(--line-soft);
+  padding: 10px 12px;
+  vertical-align: top;
+}
+
+.editor-surface th {
+  background: var(--surface-muted);
+  font-weight: 700;
+}
+
+.editor-surface td {
+  background: rgba(255, 255, 255, 0.46);
+}
+
+.editor-surface th > *,
+.editor-surface td > * {
+  margin-bottom: 0;
+}
+
+.editor-surface .selectedCell {
+  background: var(--accent-soft);
+}
+
+.editor-surface .column-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  bottom: -2px;
+  width: 4px;
+  background: var(--accent-color);
+  pointer-events: none;
+}
+
+.editor-surface.resize-cursor {
+  cursor: col-resize;
 }
 
 .editor-surface pre {

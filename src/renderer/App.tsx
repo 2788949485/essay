@@ -5,6 +5,10 @@ import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
 import Placeholder from "@tiptap/extension-placeholder";
+import Table from "@tiptap/extension-table";
+import TableCell from "@tiptap/extension-table-cell";
+import TableHeader from "@tiptap/extension-table-header";
+import TableRow from "@tiptap/extension-table-row";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import Highlight from "@tiptap/extension-highlight";
@@ -42,6 +46,7 @@ import {
   Star,
   StarOff,
   Strikethrough,
+  Table2,
   Trash2,
   Underline as UnderlineIcon,
   Undo2,
@@ -299,6 +304,7 @@ export default function App() {
   const [outlineCollapsed, setOutlineCollapsed] = useState(false);
   const [editorText, setEditorText] = useState("");
   const [blockMenuOpen, setBlockMenuOpen] = useState(false);
+  const [tableToolbarVisible, setTableToolbarVisible] = useState(false);
   const [metaEditorOpen, setMetaEditorOpen] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
@@ -331,6 +337,12 @@ export default function App() {
         inline: false,
         allowBase64: true
       }),
+      Table.configure({
+        resizable: false
+      }),
+      TableRow,
+      TableHeader,
+      TableCell,
       Placeholder.configure({
         placeholder: "开始记录..."
       }),
@@ -359,6 +371,7 @@ export default function App() {
       }
     },
     onSelectionUpdate: ({ editor }) => {
+      setTableToolbarVisible(editor.isActive("table") && !activeNote?.trashedAt);
       if (!isEmptyParagraphSelection(editor) || activeNote?.trashedAt) {
         setBlockMenuOpen(false);
       }
@@ -366,6 +379,7 @@ export default function App() {
     onUpdate: ({ editor }) => {
       markDirty();
       setEditorText(editor.getText());
+      setTableToolbarVisible(editor.isActive("table") && !activeNote?.trashedAt);
       if (!isEmptyParagraphSelection(editor) || activeNote?.trashedAt) {
         setBlockMenuOpen(false);
       }
@@ -417,6 +431,7 @@ export default function App() {
     editor.commands.setContent(activeNote.content, false);
     setEditorText(editor.getText());
     setOutlineItems(extractOutline(editor));
+    setTableToolbarVisible(editor.isActive("table") && !activeNote.trashedAt);
     window.setTimeout(() => editor.commands.focus("end"), 0);
     revisionRef.current = 0;
     setSaveState("saved");
@@ -425,6 +440,7 @@ export default function App() {
   useEffect(() => {
     if (!editor) return;
     editor.setEditable(!activeNote?.trashedAt);
+    setTableToolbarVisible(editor.isActive("table") && !activeNote?.trashedAt);
   }, [activeNote?.trashedAt, editor]);
 
   useEffect(() => {
@@ -800,6 +816,13 @@ export default function App() {
     });
     editor.chain().focus().setImage({ src: dataUrl, alt: file.name }).run();
     markDirty();
+  }
+
+  function runTableCommand(command: () => boolean) {
+    if (!editor || activeNote?.trashedAt) return;
+    command();
+    setTableToolbarVisible(editor.isActive("table") && !activeNote?.trashedAt);
+    focusEditorSoon();
   }
 
   async function handleCreate() {
@@ -1178,6 +1201,12 @@ export default function App() {
       label: "分割线",
       hint: "插入分隔",
       run: () => editor?.chain().focus().setHorizontalRule().run()
+    },
+    {
+      id: "table",
+      label: "表格",
+      hint: "3 x 3 表格",
+      run: () => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
     },
     {
       id: "image",
