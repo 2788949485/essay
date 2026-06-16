@@ -8,6 +8,14 @@ function escapeImageAlt(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/\]/g, "\\]");
 }
 
+function indentBlock(text: string, depth: number) {
+  const indent = "  ".repeat(depth);
+  return text
+    .split("\n")
+    .map((line) => (line ? `${indent}${line}` : line))
+    .join("\n");
+}
+
 function renderImage(node: JSONContent) {
   const src = String(node.attrs?.src ?? "").trim();
   if (!src) return "";
@@ -101,6 +109,24 @@ function renderTable(node: JSONContent) {
   return [header, separator, ...body].map((row) => `| ${row.join(" | ")} |`).join("\n");
 }
 
+function renderCollapsibleBlock(node: JSONContent, depth = 0): string {
+  const title = escapeText(String(node.attrs?.title ?? "").trim() || "空折叠块");
+  const indent = "  ".repeat(depth);
+  const nested = (node.content ?? [])
+    .map((child) => {
+      if (child.type === "collapsibleBlock") {
+        return renderCollapsibleBlock(child, depth + 1);
+      }
+
+      const rendered = renderBlock(child, 0).trim();
+      return rendered ? indentBlock(rendered, depth + 1) : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+
+  return `${indent}- ${title}${nested ? `\n${nested}` : ""}`;
+}
+
 function renderBlock(node: JSONContent, depth = 0): string {
   const children = node.content ?? [];
 
@@ -136,6 +162,8 @@ function renderBlock(node: JSONContent, depth = 0): string {
         .split("\n")
         .map((line) => `> ${line}`)
         .join("\n");
+    case "collapsibleBlock":
+      return renderCollapsibleBlock(node, depth);
     case "codeBlock":
       return `\`\`\`\n${node.content?.map((child) => child.text ?? "").join("") ?? ""}\n\`\`\``;
     case "horizontalRule":

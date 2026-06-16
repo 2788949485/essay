@@ -656,6 +656,11 @@ function renderBlockHtml(node: JsonNode): string {
     }
     case "blockquote":
       return `<blockquote>${children.map(renderBlockHtml).join("")}</blockquote>`;
+    case "collapsibleBlock": {
+      const title = escapeHtml(typeof node.attrs?.title === "string" && node.attrs.title.trim() ? node.attrs.title : "空折叠块");
+      const open = node.attrs?.open === false ? "" : " open";
+      return `<details data-type="collapsible-block"${open}><summary>${title}</summary><div>${children.map(renderBlockHtml).join("") || "<p></p>"}</div></details>`;
+    }
     case "bulletList":
       return `<ul>${children.map(renderListItemHtml).join("")}</ul>`;
     case "orderedList":
@@ -834,6 +839,22 @@ function buildHtmlExport(note: NoteRecord) {
       border-left: 4px solid #2f6b5b;
       background: #eef5f3;
       color: #47515a;
+    }
+
+    details[data-type="collapsible-block"] {
+      margin: 20px 0;
+      padding-left: 18px;
+      border-left: 2px solid #d7dde5;
+    }
+
+    details[data-type="collapsible-block"] > summary {
+      cursor: default;
+      font-weight: 650;
+      margin-bottom: 10px;
+    }
+
+    details[data-type="collapsible-block"] > div > *:first-child {
+      margin-top: 0;
     }
 
     table {

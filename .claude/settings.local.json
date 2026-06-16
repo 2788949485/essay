@@ -9,7 +9,9 @@
       "Bash(git ls-remote *)",
       "Bash(curl -I -m 15 https://github.com)",
       "Bash(nslookup github.com)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(git show-ref *)",
+      "Bash(git update-ref *)"
     ]
   }
 }

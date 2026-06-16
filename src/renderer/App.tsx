@@ -1,5 +1,7 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { EditorContent, FloatingMenu, useEditor } from "@tiptap/react";
+import { Extension, Node, mergeAttributes } from "@tiptap/core";
+import { EditorContent, FloatingMenu, NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor } from "@tiptap/react";
+import type { JSONContent, NodeViewProps } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
@@ -21,6 +23,7 @@ import {
   Archive,
   ArchiveRestore,
   Bold,
+  Check,
   ChevronDown,
   CheckSquare,
   Clock,
@@ -29,8 +32,10 @@ import {
   EyeOff,
   Folder,
   FolderOpen,
+  GripVertical,
   Heading1,
   Heading2,
+  Heading3,
   Highlighter,
   ImagePlus,
   Info,
@@ -44,7 +49,6 @@ import {
   Pin,
   PinOff,
   Plus,
-  Quote,
   Redo2,
   Search,
   Star,
@@ -81,6 +85,215 @@ type BlockMenuCommand = {
   hint: string;
   run: () => void;
 };
+
+type TextRole = "body" | "caption";
+type ColorToken = "default" | "slate" | "gray" | "indigo" | "blue" | "mint" | "purple" | "pink" | "peach" | "sand";
+type FontPresetId = "default" | "serif" | "mono" | "rounded";
+
+const DEFAULT_APP_SETTINGS: AppSettings = {
+  hotkey: "CommandOrControl+Alt+J",
+  startHidden: false,
+  lockOnHide: true,
+  hasPrivacyPin: false,
+  launchAtLogin: false,
+  theme: "light",
+  fontFamily: "",
+  fontSize: 16,
+  lineWidth: 880,
+  lineHeight: 1.72
+};
+
+const FORMAT_COLORS: Array<{ id: ColorToken; label: string; swatch: string }> = [
+  { id: "default", label: "默认", swatch: "#3a3f47" },
+  { id: "slate", label: "石墨", swatch: "#64748b" },
+  { id: "gray", label: "银灰", swatch: "#9ca3af" },
+  { id: "indigo", label: "靛蓝", swatch: "#1d39f2" },
+  { id: "blue", label: "天蓝", swatch: "#316ee8" },
+  { id: "mint", label: "薄荷", swatch: "#59c98c" },
+  { id: "purple", label: "紫罗兰", swatch: "#a12ee7" },
+  { id: "pink", label: "粉莓", swatch: "#e11d48" },
+  { id: "peach", label: "蜜桃", swatch: "#f28f32" },
+  { id: "sand", label: "砂岩", swatch: "#8b5a21" }
+];
+
+const FONT_PRESETS: Array<{ id: FontPresetId; label: string; preview: string; family: string }> = [
+  { id: "default", label: "默认", preview: "Aa", family: "" },
+  { id: "serif", label: "衬线", preview: "Ss", family: '"Noto Serif SC", "Source Han Serif SC", "Songti SC", serif' },
+  { id: "mono", label: "等宽", preview: "00", family: '"JetBrains Mono", "Cascadia Code", "SFMono-Regular", monospace' },
+  { id: "rounded", label: "圆体", preview: "Rr", family: '"Arial Rounded MT Bold", "Hiragino Sans GB", "Microsoft YaHei", sans-serif' }
+];
+
+const BlockFormatExtension = Extension.create({
+  name: "blockFormat",
+  addGlobalAttributes() {
+    return [
+      {
+        types: ["paragraph", "heading"],
+        attributes: {
+          textRole: {
+            default: "body",
+            parseHTML: (element) => element.getAttribute("data-text-role") || "body",
+            renderHTML: (attributes) =>
+              attributes.textRole && attributes.textRole !== "body" ? { "data-text-role": attributes.textRole } : {}
+          },
+          focusMode: {
+            default: false,
+            parseHTML: (element) => element.getAttribute("data-focus-mode") === "true",
+            renderHTML: (attributes) => (attributes.focusMode ? { "data-focus-mode": "true" } : {})
+          },
+          cardMode: {
+            default: false,
+            parseHTML: (element) => element.getAttribute("data-card-mode") === "true",
+            renderHTML: (attributes) => (attributes.cardMode ? { "data-card-mode": "true" } : {})
+          },
+          colorToken: {
+            default: "default",
+            parseHTML: (element) => (element.getAttribute("data-color-token") as ColorToken | null) || "default",
+            renderHTML: (attributes) =>
+              attributes.colorToken && attributes.colorToken !== "default"
+                ? { "data-color-token": attributes.colorToken }
+                : {}
+          },
+          customColor: {
+            default: "",
+            parseHTML: (element) => element.getAttribute("data-custom-color") || "",
+            renderHTML: (attributes) =>
+              attributes.customColor
+                ? {
+                    "data-custom-color": attributes.customColor,
+                    style: `--node-accent: ${attributes.customColor}; color: ${attributes.customColor};`
+                  }
+                : {}
+          }
+        }
+      }
+    ];
+  }
+});
+
+function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes }: NodeViewProps) {
+  const open = node.attrs.open !== false;
+  const title = typeof node.attrs.title === "string" ? node.attrs.title : "";
+
+  function focusInsertedTitle(atPos: number) {
+    window.requestAnimationFrame(() => {
+      const dom = editor.view.nodeDOM(atPos) as HTMLElement | null;
+      const input = dom?.querySelector(".collapsible-block-title") as HTMLInputElement | null;
+      input?.focus();
+    });
+  }
+
+  function insertSiblingCollapsibleBlock() {
+    const pos = typeof getPos === "function" ? getPos() : null;
+    if (typeof pos !== "number") return;
+
+    const siblingPos = pos + node.nodeSize;
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(siblingPos, {
+        type: "collapsibleBlock",
+        attrs: { title: "", open: true }
+      })
+      .run();
+    focusInsertedTitle(siblingPos);
+  }
+
+  function insertChildCollapsibleBlock() {
+    const pos = typeof getPos === "function" ? getPos() : null;
+    if (typeof pos !== "number") return;
+
+    const childPos = pos + node.nodeSize - 1;
+    const childBlock = {
+      type: "collapsibleBlock",
+      attrs: { title: "", open: true }
+    };
+    editor.chain().focus().insertContentAt(childPos, childBlock).run();
+    focusInsertedTitle(childPos);
+  }
+
+  return (
+    <NodeViewWrapper className={selected ? "collapsible-block is-selected" : "collapsible-block"} data-open={open ? "true" : "false"}>
+      <div className="collapsible-block-header" contentEditable={false}>
+        <button type="button" className="collapsible-block-drag" data-drag-handle title="拖动排序" aria-label="拖动排序">
+          <GripVertical size={14} />
+        </button>
+        <button
+          type="button"
+          className={open ? "collapsible-block-toggle is-open" : "collapsible-block-toggle"}
+          title={open ? "收起折叠块" : "展开折叠块"}
+          aria-label={open ? "收起折叠块" : "展开折叠块"}
+          onClick={() => updateAttributes({ open: !open })}
+        >
+          <ChevronDown size={14} />
+        </button>
+        <input
+          className="collapsible-block-title"
+          value={title}
+          placeholder="空折叠块"
+          onChange={(event) => updateAttributes({ title: event.target.value.slice(0, 80) })}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            insertSiblingCollapsibleBlock();
+          }}
+        />
+      </div>
+      <div className="collapsible-block-body">
+        <NodeViewContent className="collapsible-block-content" />
+        {open ? (
+          <button type="button" className="collapsible-block-insert" contentEditable={false} onClick={insertChildCollapsibleBlock}>
+            添加子折叠块
+          </button>
+        ) : null}
+      </div>
+    </NodeViewWrapper>
+  );
+}
+
+const CollapsibleBlockExtension = Node.create({
+  name: "collapsibleBlock",
+  group: "block",
+  content: "collapsibleBlock*",
+  draggable: true,
+  selectable: true,
+  defining: true,
+  isolating: true,
+  addAttributes() {
+    return {
+      title: {
+        default: "",
+        parseHTML: (element) => element.querySelector("summary")?.textContent ?? element.getAttribute("data-title") ?? "",
+        renderHTML: (attributes) => (attributes.title ? { "data-title": attributes.title } : {})
+      },
+      open: {
+        default: true,
+        parseHTML: (element) => element.hasAttribute("open"),
+        renderHTML: (attributes) => ({ "data-open": attributes.open === false ? "false" : "true" })
+      }
+    };
+  },
+  parseHTML() {
+    return [{ tag: 'details[data-type="collapsible-block"]' }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    const title =
+      typeof HTMLAttributes["data-title"] === "string" && HTMLAttributes["data-title"].trim()
+        ? HTMLAttributes["data-title"]
+        : "空折叠块";
+    const isOpen = HTMLAttributes["data-open"] !== "false";
+
+    return [
+      "details",
+      mergeAttributes(HTMLAttributes, { "data-type": "collapsible-block" }, isOpen ? { open: "open" } : {}),
+      ["summary", title],
+      ["div", 0]
+    ];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(CollapsibleBlockView);
+  }
+});
 
 type ConfirmDialogState = {
   title: string;
@@ -189,6 +402,76 @@ function isEmptyParagraphSelection(editor: ActiveEditor | null) {
   if (!empty) return false;
   if ($from.parent.type.name !== "paragraph") return false;
   return $from.parent.textContent.trim() === "";
+}
+
+function getContentPlainText(content: JSONContent | undefined) {
+  const parts: string[] = [];
+
+  function walk(node: JSONContent | undefined) {
+    if (!node) return;
+
+    if (node.type === "text") {
+      if (node.text) parts.push(node.text);
+      return;
+    }
+
+    if (node.type === "hardBreak") {
+      parts.push("\n");
+      return;
+    }
+
+    if (node.type === "image") {
+      const alt = String(node.attrs?.alt ?? "").trim();
+      if (alt) parts.push(alt);
+      return;
+    }
+
+    if (node.type === "collapsibleBlock") {
+      const title = String(node.attrs?.title ?? "").trim();
+      if (title) {
+        parts.push(title);
+        parts.push("\n");
+      }
+    }
+
+    (node.content ?? []).forEach(walk);
+
+    if (["paragraph", "heading", "blockquote", "codeBlock", "listItem", "taskItem", "collapsibleBlock", "tableRow"].includes(node.type ?? "")) {
+      parts.push("\n");
+    }
+    if (["bulletList", "orderedList", "taskList", "table"].includes(node.type ?? "")) {
+      parts.push("\n");
+    }
+  }
+
+  walk(content);
+  return parts.join("").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function getCurrentBlockFormat(editor: ActiveEditor | null) {
+  if (!editor) {
+    return {
+      textRole: "body" as TextRole,
+      focusMode: false,
+      cardMode: false,
+      colorToken: "default" as ColorToken,
+      customColor: ""
+    };
+  }
+  const attrs = editor.isActive("heading") ? editor.getAttributes("heading") : editor.getAttributes("paragraph");
+  return {
+    textRole: (attrs.textRole as TextRole | undefined) ?? "body",
+    focusMode: Boolean(attrs.focusMode),
+    cardMode: Boolean(attrs.cardMode),
+    colorToken: (attrs.colorToken as ColorToken | undefined) ?? "default",
+    customColor: typeof attrs.customColor === "string" ? attrs.customColor : ""
+  };
+}
+
+function getCurrentFontPresetId(fontFamily: string | undefined) {
+  const current = fontFamily?.trim() || "";
+  const matched = FONT_PRESETS.find((preset) => preset.family === current);
+  return matched?.id ?? "default";
 }
 
 function formatHotkeyEvent(event: React.KeyboardEvent<HTMLInputElement>) {
@@ -321,6 +604,7 @@ export default function App() {
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const customColorInputRef = useRef<HTMLInputElement | null>(null);
   const editorWrapRef = useRef<HTMLDivElement | null>(null);
   const outlineTimerRef = useRef<number | null>(null);
   const activeIdRef = useRef("");
@@ -340,6 +624,8 @@ export default function App() {
       StarterKit.configure({
         heading: { levels: [1, 2, 3] }
       }),
+      BlockFormatExtension,
+      CollapsibleBlockExtension,
       Underline,
       Link.configure({
         autolink: true,
@@ -393,7 +679,7 @@ export default function App() {
     },
     onUpdate: ({ editor }) => {
       markDirty();
-      setEditorText(editor.getText());
+      setEditorText(getContentPlainText(editor.getJSON()));
       setTableToolbarVisible(editor.isActive("table") && !activeNote?.trashedAt);
       if (!isEmptyParagraphSelection(editor) || activeNote?.trashedAt) {
         setBlockMenuOpen(false);
@@ -405,6 +691,73 @@ export default function App() {
       }, 250);
     }
   });
+
+  const currentBlockFormat = getCurrentBlockFormat(editor);
+  const currentFontPresetId = getCurrentFontPresetId(settings?.fontFamily);
+  const currentColorValue =
+    currentBlockFormat.customColor ||
+    FORMAT_COLORS.find((color) => color.id === currentBlockFormat.colorToken)?.swatch ||
+    "#316ee8";
+
+  function applyBlockFormat(attributes: Partial<ReturnType<typeof getCurrentBlockFormat>>) {
+    if (!editor || activeNote?.trashedAt) return;
+    editor.chain().focus().run();
+    editor.commands.updateAttributes("paragraph", attributes);
+    editor.commands.updateAttributes("heading", attributes);
+  }
+
+  function setTextPreset(preset: "heading-1" | "heading-2" | "heading-3" | "body" | "caption") {
+    if (!editor || activeNote?.trashedAt) return;
+    if (preset === "heading-1") {
+      editor.chain().focus().setHeading({ level: 1 }).run();
+      applyBlockFormat({ textRole: "body" });
+      return;
+    }
+    if (preset === "heading-2") {
+      editor.chain().focus().setHeading({ level: 2 }).run();
+      applyBlockFormat({ textRole: "body" });
+      return;
+    }
+    if (preset === "heading-3") {
+      editor.chain().focus().setHeading({ level: 3 }).run();
+      applyBlockFormat({ textRole: "body" });
+      return;
+    }
+    editor.chain().focus().setParagraph().run();
+    applyBlockFormat({ textRole: preset === "caption" ? "caption" : "body" });
+  }
+
+  async function applyFontPreset(presetId: FontPresetId) {
+    const preset = FONT_PRESETS.find((item) => item.id === presetId);
+    if (!preset) return;
+    const next = await window.suiji.updateSettings(settingsPayload({ ...(settings ?? DEFAULT_APP_SETTINGS), fontFamily: preset.family }, hotkeyDraft));
+    setSettings(next);
+  }
+
+  function handleCustomColorChange(event: React.ChangeEvent<HTMLInputElement>) {
+    applyBlockFormat({ colorToken: "default", customColor: event.target.value });
+  }
+
+  function createEmptyCollapsibleBlock(): JSONContent {
+    return {
+      type: "collapsibleBlock",
+      attrs: { title: "", open: true },
+      content: [{ type: "paragraph" }]
+    };
+  }
+
+  function insertCollapsibleBlock() {
+    if (!editor || activeNote?.trashedAt) return;
+    const { selection } = editor.state;
+    const selectedNode = selection.$from.nodeAfter;
+
+    if (selectedNode?.type.name === "collapsibleBlock") {
+      editor.chain().focus().insertContentAt(selection.to, createEmptyCollapsibleBlock()).run();
+      return;
+    }
+
+    editor.chain().focus().insertContent(createEmptyCollapsibleBlock()).run();
+  }
 
   const loadNotes = useCallback(async () => {
     const [loadedNotes, loadedSettings] = await Promise.all([window.suiji.listNotes(), window.suiji.getSettings()]);
@@ -464,7 +817,7 @@ export default function App() {
     setFolderDraft(activeNote.folder);
     setMetaEditorOpen(false);
     editor.commands.setContent(activeNote.content, false);
-    setEditorText(editor.getText());
+    setEditorText(getContentPlainText(activeNote.content));
     setOutlineItems(extractOutline(editor));
     setTableToolbarVisible(editor.isActive("table") && !activeNote.trashedAt);
     window.setTimeout(() => editor.commands.focus("end"), 0);
@@ -591,7 +944,7 @@ export default function App() {
       folder: normalizeFolderInput(folderDraft),
       content: editor.getJSON(),
       html: editor.getHTML(),
-      plainText: editor.getText()
+      plainText: getContentPlainText(editor.getJSON())
     };
 
     const saveTask = saveQueueRef.current.then(async () => {
@@ -956,7 +1309,7 @@ export default function App() {
         folder: normalizeFolderInput(folderDraft),
         content: editor.getJSON(),
         html: editor.getHTML(),
-        plainText: editor.getText()
+        plainText: getContentPlainText(editor.getJSON())
       },
       format
     });
@@ -1014,21 +1367,7 @@ export default function App() {
 
   async function handleSettingsSave() {
     const next = await window.suiji.updateSettings({
-      ...settingsPayload(
-        settings ?? {
-          hotkey: "CommandOrControl+Alt+J",
-          startHidden: false,
-          lockOnHide: true,
-          hasPrivacyPin: false,
-          launchAtLogin: false,
-          theme: "light",
-          fontFamily: "",
-          fontSize: 16,
-          lineWidth: 880,
-          lineHeight: 1.72
-        },
-        hotkeyDraft
-      ),
+      ...settingsPayload(settings ?? DEFAULT_APP_SETTINGS, hotkeyDraft),
       privacyPin: privacyPinDraft.trim() || undefined,
       clearPrivacyPin
     });
@@ -1070,7 +1409,7 @@ export default function App() {
       setTagsDraft(nextActive.tags.join(", "));
       setFolderDraft(nextActive.folder);
       editor.commands.setContent(nextActive.content, false);
-      setEditorText(editor.getText());
+      setEditorText(getContentPlainText(restored.content));
       setOutlineItems(extractOutline(editor));
       revisionRef.current = 0;
       setSaveState("saved");
@@ -1132,7 +1471,7 @@ export default function App() {
         setFolderDraft(restored.folder);
         editor?.commands.setContent(restored.content, false);
         if (editor) {
-          setEditorText(editor.getText());
+          setEditorText(getContentPlainText(restored.content));
           setOutlineItems(extractOutline(editor));
         }
         revisionRef.current = 0;
@@ -1223,10 +1562,10 @@ export default function App() {
       run: () => editor?.chain().focus().toggleTaskList().run()
     },
     {
-      id: "blockquote",
-      label: "引用",
-      hint: "强调段落",
-      run: () => editor?.chain().focus().toggleBlockquote().run()
+      id: "collapsible-block",
+      label: "折叠块",
+      hint: "可连续嵌套层级",
+      run: () => insertCollapsibleBlock()
     },
     {
       id: "code-block",
@@ -1617,18 +1956,19 @@ export default function App() {
                                 </button>
                               </>
                             )}
-                            <button
-                              type="button"
-                              title="移到回收站"
-                              aria-label="移到回收站"
-                              disabled={Boolean(note.trashedAt)}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void handleDeleteNote(note.id);
-                              }}
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            {!note.trashedAt ? (
+                              <button
+                                type="button"
+                                title="移到回收站"
+                                aria-label="移到回收站"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void handleDeleteNote(note.id);
+                                }}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            ) : null}
                           </div>
                         </div>
                         {note.folder || note.tags.length > 0 ? (
@@ -1657,7 +1997,11 @@ export default function App() {
               )}
             </div>
 
-            <div className="sidebar-mode-switch" aria-label="左侧内容切换">
+            <div
+              className={leftPaneMode === "files" ? "sidebar-mode-switch is-files" : "sidebar-mode-switch"}
+              aria-label="左侧内容切换"
+            >
+              <span className="sidebar-mode-thumb" aria-hidden="true" />
               <button
                 type="button"
                 className={leftPaneMode === "document" ? "sidebar-mode-button is-active" : "sidebar-mode-button"}
@@ -1683,13 +2027,21 @@ export default function App() {
         <header className="topbar">
           <div className="topbar-leading">
             <button
-              className="icon-button workspace-nav-toggle"
+              className={sidebarCollapsed ? "icon-button workspace-nav-toggle is-collapsed" : "icon-button workspace-nav-toggle"}
               title={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
               aria-label={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
               onClick={() => setSidebarCollapsed((current) => !current)}
               type="button"
             >
-              {sidebarCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+              <span className="workspace-nav-track" aria-hidden="true">
+                <span className="workspace-nav-thumb" />
+                <span className="workspace-nav-slot workspace-nav-slot-expand">
+                  <PanelLeftOpen size={15} />
+                </span>
+                <span className="workspace-nav-slot workspace-nav-slot-collapse">
+                  <PanelLeftClose size={15} />
+                </span>
+              </span>
             </button>
             <div className="title-group">
               <div className="workspace-crumb">
@@ -1912,36 +2264,64 @@ export default function App() {
 
             <div className="format-panel-group">
               <span className="format-panel-label">文本</span>
-              <div className="format-grid">
+              <div className="format-grid format-grid-text">
                 <button
                   type="button"
                   className={editor?.isActive("heading", { level: 1 }) ? "format-button is-active" : "format-button"}
                   onMouseDown={keepEditorFocus}
-                  onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
+                  onClick={() => setTextPreset("heading-1")}
                   disabled={!editor || editorDisabled}
                 >
                   <Heading1 size={16} />
-                  标题 1
+                  标题
                 </button>
                 <button
                   type="button"
                   className={editor?.isActive("heading", { level: 2 }) ? "format-button is-active" : "format-button"}
                   onMouseDown={keepEditorFocus}
-                  onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
+                  onClick={() => setTextPreset("heading-2")}
                   disabled={!editor || editorDisabled}
                 >
                   <Heading2 size={16} />
-                  标题 2
+                  副标题
                 </button>
                 <button
                   type="button"
-                  className={editor?.isActive("paragraph") ? "format-button is-active" : "format-button"}
+                  className={editor?.isActive("heading", { level: 3 }) ? "format-button is-active" : "format-button"}
                   onMouseDown={keepEditorFocus}
-                  onClick={() => editor?.chain().focus().setParagraph().run()}
+                  onClick={() => setTextPreset("heading-3")}
+                  disabled={!editor || editorDisabled}
+                >
+                  <Heading3 size={16} />
+                  小标题
+                </button>
+                <button
+                  type="button"
+                  className={
+                    editor?.isActive("paragraph") && currentBlockFormat.textRole !== "caption"
+                      ? "format-button is-active"
+                      : "format-button"
+                  }
+                  onMouseDown={keepEditorFocus}
+                  onClick={() => setTextPreset("body")}
                   disabled={!editor || editorDisabled}
                 >
                   <AlignLeft size={16} />
                   正文
+                </button>
+                <button
+                  type="button"
+                  className={
+                    editor?.isActive("paragraph") && currentBlockFormat.textRole === "caption"
+                      ? "format-button is-active"
+                      : "format-button"
+                  }
+                  onMouseDown={keepEditorFocus}
+                  onClick={() => setTextPreset("caption")}
+                  disabled={!editor || editorDisabled}
+                >
+                  <Info size={16} />
+                  说明
                 </button>
               </div>
             </div>
@@ -2000,9 +2380,15 @@ export default function App() {
                   <CheckSquare size={16} />
                   任务
                 </button>
-                <button type="button" className={editor?.isActive("blockquote") ? "format-button is-active" : "format-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleBlockquote().run()} disabled={!editor || editorDisabled}>
-                  <Quote size={16} />
-                  引用
+                <button
+                  type="button"
+                  className={editor?.isActive("collapsibleBlock") ? "format-button is-active" : "format-button"}
+                  onMouseDown={keepEditorFocus}
+                  onClick={insertCollapsibleBlock}
+                  disabled={!editor || editorDisabled}
+                >
+                  <ChevronDown size={16} />
+                  折叠块
                 </button>
                 <button type="button" className={editor?.isActive("codeBlock") ? "format-button is-active" : "format-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleCodeBlock().run()} disabled={!editor || editorDisabled}>
                   <Code2 size={16} />
@@ -2012,6 +2398,90 @@ export default function App() {
                   <Table2 size={16} />
                   表格
                 </button>
+              </div>
+            </div>
+
+            <div className="format-panel-group">
+              <span className="format-panel-label">装饰</span>
+              <div className="format-grid">
+                <button
+                  type="button"
+                  className={currentBlockFormat.focusMode ? "format-button format-decor-button is-active" : "format-button format-decor-button"}
+                  onMouseDown={keepEditorFocus}
+                  onClick={() => applyBlockFormat({ focusMode: !currentBlockFormat.focusMode })}
+                  disabled={!editor || editorDisabled}
+                >
+                  <span className="format-decor-chip format-decor-chip-focus" aria-hidden="true">
+                    <span className="format-decor-focus-bar" />
+                    <span>焦点</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={currentBlockFormat.cardMode ? "format-button format-decor-button is-active" : "format-button format-decor-button"}
+                  onMouseDown={keepEditorFocus}
+                  onClick={() => applyBlockFormat({ cardMode: !currentBlockFormat.cardMode })}
+                  disabled={!editor || editorDisabled}
+                >
+                  <span className="format-decor-chip format-decor-chip-card" aria-hidden="true">
+                    <span>块</span>
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <div className="format-panel-group">
+              <span className="format-panel-label">颜色</span>
+              <div className="format-color-grid">
+                {FORMAT_COLORS.map((color) => (
+                  <button
+                    key={color.id}
+                    type="button"
+                    className={currentBlockFormat.colorToken === color.id ? "format-color-button is-active" : "format-color-button"}
+                    style={{ "--format-swatch": color.swatch } as React.CSSProperties}
+                    title={color.label}
+                    aria-label={color.label}
+                    onMouseDown={keepEditorFocus}
+                    onClick={() => applyBlockFormat({ colorToken: color.id, customColor: "" })}
+                    disabled={!editor || editorDisabled}
+                  >
+                    {currentBlockFormat.colorToken === color.id ? <Check size={14} /> : null}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className={currentBlockFormat.customColor ? "format-color-button format-color-button-rainbow is-active" : "format-color-button format-color-button-rainbow"}
+                  title="自定义颜色"
+                  aria-label="自定义颜色"
+                  onMouseDown={keepEditorFocus}
+                  onClick={() => customColorInputRef.current?.click()}
+                  disabled={!editor || editorDisabled}
+                >
+                  {currentBlockFormat.customColor ? <Check size={14} /> : null}
+                </button>
+              </div>
+              <input ref={customColorInputRef} className="format-color-input" type="color" value={currentColorValue} onChange={handleCustomColorChange} />
+            </div>
+
+            <div className="format-panel-group">
+              <span className="format-panel-label">字体</span>
+              <div className="format-font-grid">
+                {FONT_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className={currentFontPresetId === preset.id ? "format-font-button is-active" : "format-font-button"}
+                    title={preset.label}
+                    aria-label={preset.label}
+                    style={{ "--format-font-family": preset.family || 'var(--editor-font-family, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif)' } as React.CSSProperties}
+                    onMouseDown={keepEditorFocus}
+                    onClick={() => void applyFontPreset(preset.id)}
+                    disabled={!settings}
+                  >
+                    <span className="format-font-preview">{preset.preview}</span>
+                    <span className="format-font-label">{preset.label}</span>
+                  </button>
+                ))}
               </div>
             </div>
 
