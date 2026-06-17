@@ -702,6 +702,18 @@ function formatExportDate(value: string) {
   }).format(date);
 }
 
+function buildMarkdownExport(note: NoteRecord) {
+  const title = (note.title || "未命名记录").trim() || "未命名记录";
+  const body = toMarkdown(note.content).trim();
+  return body ? `# ${title}\n\n${body}\n` : `# ${title}\n`;
+}
+
+function buildTextExport(note: NoteRecord) {
+  const title = (note.title || "未命名记录").trim() || "未命名记录";
+  const body = note.plainText.trim();
+  return body ? `${title}\n\n${body}\n` : `${title}\n`;
+}
+
 function buildHtmlExport(note: NoteRecord) {
   const title = escapeHtml(note.title || "未命名记录");
   const createdAt = formatExportDate(note.createdAt);
@@ -1678,8 +1690,8 @@ async function batchExportNotes(format: BatchExportFormat): Promise<{ directory:
         : format === "json"
           ? JSON.stringify(note, null, 2)
           : format === "md"
-            ? toMarkdown(note.content)
-            : note.plainText;
+            ? buildMarkdownExport(note)
+            : buildTextExport(note);
     await atomicWriteFile(filePath, content);
   }
 
@@ -2201,8 +2213,8 @@ function registerIpc() {
         : payload.format === "json"
           ? JSON.stringify(payload.note, null, 2)
           : payload.format === "md"
-            ? toMarkdown(payload.note.content)
-            : payload.note.plainText;
+            ? buildMarkdownExport(payload.note)
+            : buildTextExport(payload.note);
 
     await atomicWriteFile(result.filePath, content);
     return result.filePath;

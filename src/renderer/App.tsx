@@ -2,6 +2,7 @@
 import { Extension, Node, mergeAttributes } from "@tiptap/core";
 import { EditorContent, FloatingMenu, NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor } from "@tiptap/react";
 import type { JSONContent, NodeViewProps } from "@tiptap/react";
+import { TextSelection } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
@@ -186,6 +187,30 @@ function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes
     });
   }
 
+  function findParentCollapsiblePos() {
+    const pos = typeof getPos === "function" ? getPos() : null;
+    if (typeof pos !== "number") return null;
+    const $pos = editor.state.doc.resolve(pos);
+
+    for (let depth = $pos.depth - 1; depth > 0; depth -= 1) {
+      if ($pos.node(depth).type.name === "collapsibleBlock") return $pos.before(depth);
+    }
+
+    return null;
+  }
+
+  function findParentCollapsibleAfterPos() {
+    const pos = typeof getPos === "function" ? getPos() : null;
+    if (typeof pos !== "number") return null;
+    const $pos = editor.state.doc.resolve(pos);
+
+    for (let depth = $pos.depth - 1; depth > 0; depth -= 1) {
+      if ($pos.node(depth).type.name === "collapsibleBlock") return $pos.after(depth);
+    }
+
+    return null;
+  }
+
   function insertSiblingCollapsibleBlock() {
     const pos = typeof getPos === "function" ? getPos() : null;
     if (typeof pos !== "number") return;
@@ -203,7 +228,7 @@ function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes
       .focus()
       .insertContentAt(siblingPos, {
         type: "collapsibleBlock",
-        attrs: { title: "", open: true }
+        attrs: { title: "", open: false }
       })
       .run();
     focusInsertedTitle(siblingPos);
@@ -222,7 +247,7 @@ function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes
         .focus()
         .insertContentAt(siblingPos, {
           type: "collapsibleBlock",
-          attrs: { title: "", open: true }
+          attrs: { title: "", open: false }
         })
         .run();
       focusInsertedTitle(siblingPos);
@@ -230,29 +255,38 @@ function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes
     }
   }
 
-  function hasParentCollapsibleBlock() {
-    const pos = typeof getPos === "function" ? getPos() : null;
-    if (typeof pos !== "number") return false;
-    const $pos = editor.state.doc.resolve(pos);
-
-    for (let depth = $pos.depth - 1; depth > 0; depth -= 1) {
-      if ($pos.node(depth).type.name === "collapsibleBlock") return true;
-    }
-
-    return false;
-  }
-
-  function exitToParagraph() {
+  function removeEmptyCollapsibleBlock() {
     const pos = typeof getPos === "function" ? getPos() : null;
     if (typeof pos !== "number") return;
 
-    editor
-      .chain()
-      .focus()
-      .deleteRange({ from: pos, to: pos + node.nodeSize })
-      .insertContentAt(pos, { type: "paragraph" })
-      .setTextSelection(pos + 1)
-      .run();
+    const parentPos = findParentCollapsiblePos();
+    const parentAfterPos = findParentCollapsibleAfterPos();
+    const { state, view } = editor;
+    const tr = state.tr.delete(pos, pos + node.nodeSize);
+
+    if (parentPos !== null && parentAfterPos !== null) {
+      const insertPos = tr.mapping.map(parentAfterPos);
+      tr.insert(insertPos, state.schema.nodes.collapsibleBlock.create({ title: "", open: false }));
+      view.dispatch(tr.scrollIntoView());
+      editor.commands.focus();
+      focusInsertedTitle(insertPos);
+      return;
+    }
+
+    const mappedPos = tr.mapping.map(pos);
+    if (tr.doc.childCount === 0) {
+      const paragraph = state.schema.nodes.paragraph?.create();
+      if (paragraph) {
+        tr.insert(mappedPos, paragraph);
+        tr.setSelection(TextSelection.create(tr.doc, mappedPos + 1));
+      }
+    } else {
+      const selectionPos = Math.min(Math.max(1, mappedPos), tr.doc.content.size);
+      tr.setSelection(TextSelection.create(tr.doc, selectionPos));
+    }
+
+    view.dispatch(tr.scrollIntoView());
+    editor.commands.focus();
   }
 
   function insertChildCollapsibleBlock() {
@@ -262,7 +296,7 @@ function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes
     const childPos = pos + node.nodeSize - 1;
     const childBlock = {
       type: "collapsibleBlock",
-      attrs: { title: "", open: true }
+      attrs: { title: "", open: false }
     };
     editor.chain().focus().insertContentAt(childPos, childBlock).run();
     focusInsertedTitle(childPos);
@@ -294,10 +328,11 @@ function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes
           onKeyDown={(event) => {
             if (event.key !== "Enter") return;
             event.preventDefault();
-            const isChildBlock = hasParentCollapsibleBlock();
+            const parentPos = findParentCollapsiblePos();
+            const isChildBlock = parentPos !== null;
 
-            if (!title.trim() && !isChildBlock) {
-              exitToParagraph();
+            if (!title.trim()) {
+              removeEmptyCollapsibleBlock();
               return;
             }
 
@@ -852,7 +887,7 @@ export default function App() {
   function createEmptyCollapsibleBlock(): JSONContent {
     return {
       type: "collapsibleBlock",
-      attrs: { title: "", open: true }
+      attrs: { title: "", open: false }
     };
   }
 
