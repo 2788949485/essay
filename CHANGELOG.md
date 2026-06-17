@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1 - 2026-06-17
+
+- Refined in-app scrollbar styling with slimmer, lower-contrast thumb treatment so scrolling feels less visually heavy, especially in dark mode.
+- Kept the existing layout and interactions intact while unifying scrollbar appearance across app panels.
+
 ## 0.7.3 - 2026-05-29
 
 - Added a collapsible outline panel so the directory can be folded away in small windows.
