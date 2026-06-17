@@ -44,6 +44,7 @@ import {
   List,
   ListOrdered,
   Lock,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   Pin,
@@ -174,6 +175,8 @@ const BlockFormatExtension = Extension.create({
 function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes }: NodeViewProps) {
   const open = node.attrs.open !== false;
   const title = typeof node.attrs.title === "string" ? node.attrs.title : "";
+  const [menuOpen, setMenuOpen] = useState(false);
+  const hasChild = node.content.childCount > 0;
 
   function focusInsertedTitle(atPos: number) {
     window.requestAnimationFrame(() => {
@@ -186,8 +189,15 @@ function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes
   function insertSiblingCollapsibleBlock() {
     const pos = typeof getPos === "function" ? getPos() : null;
     if (typeof pos !== "number") return;
+    const $pos = editor.state.doc.resolve(pos);
+    let siblingPos = pos + node.nodeSize;
 
-    const siblingPos = pos + node.nodeSize;
+    for (let depth = $pos.depth - 1; depth > 0; depth -= 1) {
+      if ($pos.node(depth).type.name !== "collapsibleBlock") continue;
+      siblingPos = $pos.before(depth) + $pos.node(depth).nodeSize;
+      break;
+    }
+
     editor
       .chain()
       .focus()
@@ -197,6 +207,52 @@ function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes
       })
       .run();
     focusInsertedTitle(siblingPos);
+  }
+
+  function insertSiblingChildCollapsibleBlock() {
+    const pos = typeof getPos === "function" ? getPos() : null;
+    if (typeof pos !== "number") return;
+    const $pos = editor.state.doc.resolve(pos);
+
+    for (let depth = $pos.depth - 1; depth > 0; depth -= 1) {
+      if ($pos.node(depth).type.name !== "collapsibleBlock") continue;
+      const siblingPos = pos + node.nodeSize;
+      editor
+        .chain()
+        .focus()
+        .insertContentAt(siblingPos, {
+          type: "collapsibleBlock",
+          attrs: { title: "", open: true }
+        })
+        .run();
+      focusInsertedTitle(siblingPos);
+      return;
+    }
+  }
+
+  function hasParentCollapsibleBlock() {
+    const pos = typeof getPos === "function" ? getPos() : null;
+    if (typeof pos !== "number") return false;
+    const $pos = editor.state.doc.resolve(pos);
+
+    for (let depth = $pos.depth - 1; depth > 0; depth -= 1) {
+      if ($pos.node(depth).type.name === "collapsibleBlock") return true;
+    }
+
+    return false;
+  }
+
+  function exitToParagraph() {
+    const pos = typeof getPos === "function" ? getPos() : null;
+    if (typeof pos !== "number") return;
+
+    editor
+      .chain()
+      .focus()
+      .deleteRange({ from: pos, to: pos + node.nodeSize })
+      .insertContentAt(pos, { type: "paragraph" })
+      .setTextSelection(pos + 1)
+      .run();
   }
 
   function insertChildCollapsibleBlock() {
@@ -215,7 +271,7 @@ function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes
   return (
     <NodeViewWrapper className={selected ? "collapsible-block is-selected" : "collapsible-block"} data-open={open ? "true" : "false"}>
       <div className="collapsible-block-header" contentEditable={false}>
-        <button type="button" className="collapsible-block-drag" data-drag-handle title="拖动排序" aria-label="拖动排序">
+        <button type="button" className="collapsible-block-drag" data-drag-handle title="拖动排序" aria-label="拖动排序" onMouseDown={(event) => event.stopPropagation()}>
           <GripVertical size={14} />
         </button>
         <button
@@ -223,6 +279,7 @@ function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes
           className={open ? "collapsible-block-toggle is-open" : "collapsible-block-toggle"}
           title={open ? "收起折叠块" : "展开折叠块"}
           aria-label={open ? "收起折叠块" : "展开折叠块"}
+          onMouseDown={(event) => event.stopPropagation()}
           onClick={() => updateAttributes({ open: !open })}
         >
           <ChevronDown size={14} />
@@ -231,19 +288,73 @@ function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes
           className="collapsible-block-title"
           value={title}
           placeholder="空折叠块"
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
           onChange={(event) => updateAttributes({ title: event.target.value.slice(0, 80) })}
           onKeyDown={(event) => {
             if (event.key !== "Enter") return;
             event.preventDefault();
-            insertSiblingCollapsibleBlock();
+            const isChildBlock = hasParentCollapsibleBlock();
+
+            if (!title.trim() && !isChildBlock) {
+              exitToParagraph();
+              return;
+            }
+
+            if (!isChildBlock) {
+              if (open) {
+                insertChildCollapsibleBlock();
+                return;
+              }
+
+              insertSiblingCollapsibleBlock();
+              return;
+            }
+
+            insertSiblingChildCollapsibleBlock();
           }}
         />
+        <div className="collapsible-block-menu-wrap">
+          <button
+            type="button"
+            className={menuOpen ? "collapsible-block-menu-trigger is-open" : "collapsible-block-menu-trigger"}
+            aria-label="折叠块操作"
+            title="折叠块操作"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={() => setMenuOpen((current) => !current)}
+          >
+            <MoreHorizontal size={14} />
+          </button>
+          {menuOpen ? (
+            <div className="collapsible-block-menu" onMouseDown={(event) => event.stopPropagation()}>
+              <button
+                type="button"
+                className="collapsible-block-menu-delete"
+                onClick={() => {
+                  setMenuOpen(false);
+                  const pos = typeof getPos === "function" ? getPos() : null;
+                  if (typeof pos !== "number") return;
+                  editor.chain().focus().deleteRange({ from: pos, to: pos + node.nodeSize }).run();
+                }}
+              >
+                <Trash2 size={14} />
+                删除
+              </button>
+            </div>
+          ) : null}
+        </div>
       </div>
       <div className="collapsible-block-body">
         <NodeViewContent className="collapsible-block-content" />
-        {open ? (
-          <button type="button" className="collapsible-block-insert" contentEditable={false} onClick={insertChildCollapsibleBlock}>
-            添加子折叠块
+        {open && !hasChild ? (
+          <button
+            type="button"
+            className="collapsible-block-insert"
+            contentEditable={false}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={insertChildCollapsibleBlock}
+          >
+            空折叠块
           </button>
         ) : null}
       </div>
@@ -741,22 +852,26 @@ export default function App() {
   function createEmptyCollapsibleBlock(): JSONContent {
     return {
       type: "collapsibleBlock",
-      attrs: { title: "", open: true },
-      content: [{ type: "paragraph" }]
+      attrs: { title: "", open: true }
     };
+  }
+
+  function focusInsertedCollapsibleTitle(atPos: number) {
+    window.requestAnimationFrame(() => {
+      const dom = editor?.view.nodeDOM(atPos) as HTMLElement | null;
+      const input = dom?.querySelector(".collapsible-block-title") as HTMLInputElement | null;
+      input?.focus();
+    });
   }
 
   function insertCollapsibleBlock() {
     if (!editor || activeNote?.trashedAt) return;
     const { selection } = editor.state;
     const selectedNode = selection.$from.nodeAfter;
+    const insertPos = selectedNode?.type.name === "collapsibleBlock" ? selection.to : selection.from;
 
-    if (selectedNode?.type.name === "collapsibleBlock") {
-      editor.chain().focus().insertContentAt(selection.to, createEmptyCollapsibleBlock()).run();
-      return;
-    }
-
-    editor.chain().focus().insertContent(createEmptyCollapsibleBlock()).run();
+    editor.chain().focus().insertContentAt(insertPos, createEmptyCollapsibleBlock()).run();
+    focusInsertedCollapsibleTitle(insertPos);
   }
 
   const loadNotes = useCallback(async () => {
