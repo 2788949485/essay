@@ -7,6 +7,7 @@
   ipcMain,
   Menu,
   nativeImage,
+  powerMonitor,
   shell,
   Tray
 } from "electron";
@@ -18,6 +19,8 @@ import path from "node:path";
 import { toMarkdown } from "../shared/markdown.js";
 import type {
   AppSettings,
+  BackupExportOptions,
+  BackupImportOptions,
   BackupEntry,
   BatchExportFormat,
   ExportPayload,
@@ -39,7 +42,8 @@ const ALLOWED_EXPORT_FORMATS = new Set(["html", "json", "txt", "md", "pdf"]);
 const ALLOWED_BATCH_EXPORT_FORMATS = new Set(["html", "json", "txt", "md"]);
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 const DB_FLUSH_DELAY_MS = 900;
-const DEBUG_LOG_PATH = process.env.SUIJI_DEBUG_LOG || "d:\\zhuomian\\essay\\runtime_cache\\suiji-debug.log";
+const IDLE_LOCK_CHECK_INTERVAL_MS = 15_000;
+const DEBUG_LOG_PATH = process.env.SUIJI_DEBUG_LOG || (app.isPackaged ? "" : "d:\\zhuomian\\essay\\runtime_cache\\suiji-debug.log");
 const DEBUG_PORT = process.env.SUIJI_DEBUG_PORT || "";
 
 type StoredSettings = Omit<AppSettings, "hasPrivacyPin" | "storageUnlocked"> & {
@@ -61,6 +65,7 @@ const DEFAULT_SETTINGS: StoredSettings = {
   hotkey: DEFAULT_HOTKEY,
   startHidden: false,
   lockOnHide: true,
+  idleLockMinutes: 0,
   backupHistoryEnabled: true,
   backupHistoryLimit: DEFAULT_BACKUP_HISTORY_LIMIT,
   storageEncrypted: false,
@@ -92,6 +97,8 @@ let notesDbFlushTimer: NodeJS.Timeout | null = null;
 let notesDbPersistQueue: Promise<void> = Promise.resolve();
 let settingsCache: StoredSettings | null = null;
 let activePrivacyPin: string | null = null;
+let idleLockTimer: NodeJS.Timeout | null = null;
+let idleLockTriggered = false;
 
 type StorageConfig = {
   dataRoot?: string;
@@ -211,6 +218,7 @@ function publicSettings(settings: StoredSettings): AppSettings {
     hotkey: settings.hotkey,
     startHidden: settings.startHidden,
     lockOnHide: settings.lockOnHide,
+    idleLockMinutes: settings.idleLockMinutes,
     backupHistoryEnabled: settings.backupHistoryEnabled,
     backupHistoryLimit: settings.backupHistoryLimit,
     storageEncrypted,
@@ -245,11 +253,21 @@ function verifyPin(settings: StoredSettings, pin: string) {
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
+function resolveVerifiedPin(settings: StoredSettings, suppliedPin?: string, allowSessionFallback = true) {
+  const candidate =
+    coerceString(suppliedPin, "", MAX_PIN_LENGTH).trim() || (allowSessionFallback ? activePrivacyPin || "" : "");
+  if (!candidate || !verifyPin(settings, candidate)) {
+    throw new Error("需要先验证当前隐私密码");
+  }
+  return candidate;
+}
+
 function sanitizeStoredSettings(raw: Partial<StoredSettings>): StoredSettings {
   return {
     hotkey: coerceString(raw.hotkey, DEFAULT_HOTKEY, 120).trim() || DEFAULT_HOTKEY,
     startHidden: Boolean(raw.startHidden),
     lockOnHide: Boolean(raw.lockOnHide),
+    idleLockMinutes: Math.min(Math.max(Number(raw.idleLockMinutes) || 0, 0), 240),
     backupHistoryEnabled: raw.backupHistoryEnabled !== false,
     backupHistoryLimit: Math.min(
       Math.max(Number(raw.backupHistoryLimit) || DEFAULT_BACKUP_HISTORY_LIMIT, 1),
@@ -268,7 +286,7 @@ function sanitizeStoredSettings(raw: Partial<StoredSettings>): StoredSettings {
 }
 
 function deriveStorageKey(pin: string, salt: string) {
-  return scryptSync(pin, `${salt}:storage`, 32);
+  return scryptSync(pin, `${salt}:storage`, 32, { N: 1 << 15, r: 8, p: 1, maxmem: 128 * 1024 * 1024 });
 }
 
 function parseEncryptedEnvelope(raw: Buffer): EncryptedEnvelope | null {
@@ -364,6 +382,31 @@ async function writeStoredBytesFile(filePath: string, content: Uint8Array, setti
 
 async function writeStoredJsonFile(filePath: string, value: unknown, settings: StoredSettings) {
   await writeStoredBytesFile(filePath, Buffer.from(JSON.stringify(value, null, 2), "utf8"), settings);
+}
+
+async function writeEncryptedBackupExport(filePath: string, value: unknown, pin: string) {
+  const payload = encodeStoredBytes(
+    Buffer.from(JSON.stringify(value, null, 2), "utf8"),
+    pin,
+    randomBytes(16).toString("hex"),
+    true
+  );
+  await atomicWriteBytes(filePath, payload);
+}
+
+async function readImportedBackupText(filePath: string, providedPin?: string) {
+  const raw = await fs.readFile(filePath);
+  const envelope = parseEncryptedEnvelope(raw);
+  if (!envelope) return raw.toString("utf8");
+  const pin = coerceString(providedPin, "", MAX_PIN_LENGTH).trim() || activePrivacyPin || "";
+  if (!pin) {
+    throw new Error("加密备份需要先输入当前隐私密码");
+  }
+  try {
+    return decodeStoredBytes(raw, pin).toString("utf8");
+  } catch {
+    throw new Error("当前隐私密码无法解密这个备份");
+  }
 }
 
 async function ensureNotesDatabaseReady() {
@@ -593,9 +636,9 @@ function markdownToDoc(markdown: string): NoteRecord["content"] {
   return { type: "doc", content: blocks.length ? blocks : [{ type: "paragraph" }] };
 }
 
-function defaultBackupName() {
+function defaultBackupName(encrypted = false) {
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
-  return `suiji-backup-${stamp}.json`;
+  return `suiji-backup-${stamp}.${encrypted ? "suiji-backup" : "json"}`;
 }
 
 function coerceString(value: unknown, fallback = "", maxLength = MAX_TEXT_FIELD_LENGTH) {
@@ -657,6 +700,7 @@ function sanitizeSettingsPayload(raw: unknown): SettingsUpdatePayload {
     hotkey: coerceString(payload.hotkey, DEFAULT_HOTKEY, 120).trim() || DEFAULT_HOTKEY,
     startHidden: Boolean(payload.startHidden),
     lockOnHide: Boolean(payload.lockOnHide),
+    idleLockMinutes: Math.min(Math.max(Number(payload.idleLockMinutes) || 0, 0), 240),
     backupHistoryEnabled: payload.backupHistoryEnabled !== false,
     backupHistoryLimit: Math.min(
       Math.max(Number(payload.backupHistoryLimit) || DEFAULT_BACKUP_HISTORY_LIMIT, 1),
@@ -669,6 +713,8 @@ function sanitizeSettingsPayload(raw: unknown): SettingsUpdatePayload {
     fontSize: Math.min(Math.max(Number(payload.fontSize) || 16, 13), 24),
     lineWidth: Math.min(Math.max(Number(payload.lineWidth) || 880, 640), 1200),
     lineHeight: Math.min(Math.max(Number(payload.lineHeight) || 1.72, 1.35), 2.2),
+    currentPrivacyPin:
+      typeof payload.currentPrivacyPin === "string" ? payload.currentPrivacyPin.slice(0, MAX_PIN_LENGTH) : undefined,
     privacyPin: typeof payload.privacyPin === "string" ? payload.privacyPin.slice(0, MAX_PIN_LENGTH) : undefined,
     clearPrivacyPin: Boolean(payload.clearPrivacyPin)
   };
@@ -1589,12 +1635,24 @@ async function reconfigureLocalStorage(current: StoredSettings, next: StoredSett
 
 async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<AppSettings> {
   const current = await readStoredSettings();
-  const nextPin = payload.clearPrivacyPin ? null : typeof payload.privacyPin === "string" && payload.privacyPin.trim() ? payload.privacyPin.trim().slice(0, MAX_PIN_LENGTH) : activePrivacyPin;
+  const requiresCurrentPin =
+    Boolean(current.privacyPinHash && current.privacyPinSalt) &&
+    (Boolean(payload.clearPrivacyPin) ||
+      (typeof payload.privacyPin === "string" && payload.privacyPin.trim()) ||
+      Boolean(payload.encryptLocalData) !== Boolean(current.storageEncrypted));
+  const verifiedCurrentPin = requiresCurrentPin ? resolveVerifiedPin(current, payload.currentPrivacyPin, false) : activePrivacyPin;
+  const nextPin =
+    payload.clearPrivacyPin
+      ? null
+      : typeof payload.privacyPin === "string" && payload.privacyPin.trim()
+        ? payload.privacyPin.trim().slice(0, MAX_PIN_LENGTH)
+        : verifiedCurrentPin;
   const next: StoredSettings = {
     ...current,
     hotkey: payload.hotkey || DEFAULT_HOTKEY,
     startHidden: Boolean(payload.startHidden),
     lockOnHide: Boolean(payload.lockOnHide),
+    idleLockMinutes: payload.idleLockMinutes,
     backupHistoryEnabled: Boolean(payload.backupHistoryEnabled),
     backupHistoryLimit: payload.backupHistoryLimit,
     storageEncrypted: Boolean(payload.encryptLocalData),
@@ -1643,6 +1701,7 @@ async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<App
     openAtLogin: next.launchAtLogin,
     openAsHidden: next.startHidden
   });
+  refreshIdleLockMonitor();
   return publicSettings(next);
 }
 
@@ -1684,9 +1743,11 @@ async function searchNoteIds(query: string): Promise<string[]> {
   }
 }
 
-async function exportAllNotesBackup() {
+async function exportAllNotesBackup(options?: BackupExportOptions) {
   const notes = await listNotes();
   const settings = await readStoredSettings();
+  const encrypted = Boolean(options?.encrypted);
+  const verifiedPin = encrypted ? resolveVerifiedPin(settings, options?.currentPrivacyPin) : null;
   const backup: NotesBackup = {
     app: "suiji",
     version: app.getVersion(),
@@ -1695,34 +1756,42 @@ async function exportAllNotesBackup() {
   };
   const result = mainWindow
     ? await dialog.showSaveDialog(mainWindow, {
-        title: "备份全部记录",
-        defaultPath: defaultBackupName(),
+        title: encrypted ? "导出加密备份" : "备份全部记录",
+        defaultPath: defaultBackupName(encrypted),
         filters: [
-          { name: "JSON Backup", extensions: ["json"] },
+          encrypted
+            ? { name: "Suiji Encrypted Backup", extensions: ["suiji-backup"] }
+            : { name: "JSON Backup", extensions: ["json"] },
           { name: "All Files", extensions: ["*"] }
         ]
       })
     : await dialog.showSaveDialog({
-        title: "备份全部记录",
-        defaultPath: defaultBackupName(),
+        title: encrypted ? "导出加密备份" : "备份全部记录",
+        defaultPath: defaultBackupName(encrypted),
         filters: [
-          { name: "JSON Backup", extensions: ["json"] },
+          encrypted
+            ? { name: "Suiji Encrypted Backup", extensions: ["suiji-backup"] }
+            : { name: "JSON Backup", extensions: ["json"] },
           { name: "All Files", extensions: ["*"] }
         ]
       });
 
   if (result.canceled || !result.filePath) return null;
-  await writeStoredJsonFile(result.filePath, backup, settings);
+  if (encrypted && verifiedPin) {
+    await writeEncryptedBackupExport(result.filePath, backup, verifiedPin);
+  } else {
+    await atomicWriteFile(result.filePath, JSON.stringify(backup, null, 2));
+  }
   return result.filePath;
 }
 
-async function restoreNotesBackup(): Promise<RestoreResult | null> {
+async function restoreNotesBackup(options?: BackupImportOptions): Promise<RestoreResult | null> {
   const result = mainWindow
     ? await dialog.showOpenDialog(mainWindow, {
         title: "恢复记录备份",
         properties: ["openFile"],
         filters: [
-          { name: "JSON Backup", extensions: ["json"] },
+          { name: "Suiji Backup", extensions: ["json", "suiji-backup"] },
           { name: "All Files", extensions: ["*"] }
         ]
       })
@@ -1730,7 +1799,7 @@ async function restoreNotesBackup(): Promise<RestoreResult | null> {
         title: "恢复记录备份",
         properties: ["openFile"],
         filters: [
-          { name: "JSON Backup", extensions: ["json"] },
+          { name: "Suiji Backup", extensions: ["json", "suiji-backup"] },
           { name: "All Files", extensions: ["*"] }
         ]
       });
@@ -1751,7 +1820,7 @@ async function restoreNotesBackup(): Promise<RestoreResult | null> {
     : await dialog.showMessageBox(warningOptions);
   if (warning.response !== 0) return null;
 
-  const raw = await readStoredTextFile(result.filePaths[0]);
+  const raw = await readImportedBackupText(result.filePaths[0], options?.currentPrivacyPin);
   const backupNotes = parseBackupNotes(JSON.parse(raw));
   let imported = 0;
   let skipped = 0;
@@ -2208,11 +2277,50 @@ function createWindow() {
   }
 }
 
-async function lockContentForPrivacy() {
+function dispatchPrivacyLock() {
+  mainWindow?.webContents.send("privacy:lock");
+}
+
+async function lockContentForPrivacy(force = false) {
   const settings = await readStoredSettings();
-  if (settings.lockOnHide) {
-    mainWindow?.webContents.send("privacy:lock");
+  if (!force && !settings.lockOnHide) return;
+  if (isStorageEncryptionEnabled(settings)) {
+    await persistNotesDatabase(settings);
+    activePrivacyPin = null;
+    if (notesDb) {
+      try {
+        notesDb.close();
+      } catch {
+        // Lock cleanup is best effort after flushing the encrypted store.
+      }
+      notesDb = null;
+    }
   }
+  idleLockTriggered = true;
+  dispatchPrivacyLock();
+}
+
+function refreshIdleLockMonitor() {
+  if (idleLockTimer) {
+    clearInterval(idleLockTimer);
+    idleLockTimer = null;
+  }
+  idleLockTriggered = false;
+  void readStoredSettings().then((settings) => {
+    if (!settings.idleLockMinutes || !(settings.privacyPinHash && settings.privacyPinSalt)) return;
+    idleLockTimer = setInterval(() => {
+      const thresholdSeconds = settings.idleLockMinutes * 60;
+      const idleSeconds = powerMonitor.getSystemIdleTime();
+      if (idleSeconds < Math.min(thresholdSeconds, 10)) {
+        idleLockTriggered = false;
+        return;
+      }
+      if (idleSeconds >= thresholdSeconds && !idleLockTriggered) {
+        idleLockTriggered = true;
+        void lockContentForPrivacy(true);
+      }
+    }, IDLE_LOCK_CHECK_INTERVAL_MS);
+  });
 }
 
 function createApplicationMenu() {
@@ -2425,8 +2533,8 @@ function registerIpc() {
   ipcMain.handle("notes:restore-backup-version", (_event, id: string, fileName: string) =>
     restoreNoteBackup(id, fileName)
   );
-  ipcMain.handle("notes:backup-all", exportAllNotesBackup);
-  ipcMain.handle("notes:restore-backup", restoreNotesBackup);
+  ipcMain.handle("notes:backup-all", (_event, options?: BackupExportOptions) => exportAllNotesBackup(options));
+  ipcMain.handle("notes:restore-backup", (_event, options?: BackupImportOptions) => restoreNotesBackup(options));
   ipcMain.handle("notes:import-markdown", importMarkdownNotes);
   ipcMain.handle("notes:batch-export", (_event, format: BatchExportFormat) => batchExportNotes(format));
   ipcMain.handle("notes:export", async (_event, rawPayload: ExportPayload) => {
@@ -2510,6 +2618,7 @@ function registerIpc() {
     const ok = verifyPin(settings, candidate);
     if (!ok) return false;
     activePrivacyPin = candidate;
+    idleLockTriggered = false;
     if (isStorageEncryptionEnabled(settings) && !notesDb) {
       await initializeNotesDatabase(settings);
     }
@@ -2550,6 +2659,13 @@ if (gotTheLock) {
     createWindow();
     createTray(settings);
     registerHotkey(settings.hotkey);
+    refreshIdleLockMonitor();
+    powerMonitor.on("suspend", () => {
+      void lockContentForPrivacy(true);
+    });
+    powerMonitor.on("lock-screen", () => {
+      void lockContentForPrivacy(true);
+    });
 
     if (!settings.startHidden) {
       showWindow();
@@ -2575,6 +2691,7 @@ if (gotTheLock) {
 
   app.on("will-quit", () => {
     globalShortcut.unregisterAll();
+    if (idleLockTimer) clearInterval(idleLockTimer);
     if (notesDb) {
       try {
         notesDb.close();

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.2 - 2026-06-18
+
+- Required re-entering the current PIN before disabling local encryption or changing the privacy PIN, instead of trusting the already-open session.
+- Disabled default debug-log file output in packaged builds unless `SUIJI_DEBUG_LOG` is explicitly provided.
+- Added idle auto-lock timing, lock-on-suspend behavior, and real encrypted-session teardown when the app locks.
+- Added app-specific encrypted backup export and restore flow so full-library backups can be protected outside the local database.
+
 ## 0.9.1 - 2026-06-18
 
 - Reworked the settings dialog into clearer Preference, Security, and Data sections with stronger card hierarchy and better scanability.

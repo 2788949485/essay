@@ -103,6 +103,7 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   hotkey: "CommandOrControl+Alt+J",
   startHidden: false,
   lockOnHide: true,
+  idleLockMinutes: 0,
   hasPrivacyPin: false,
   backupHistoryEnabled: true,
   backupHistoryLimit: 80,
@@ -678,6 +679,7 @@ function settingsPayload(settings: AppSettings, hotkey: string) {
     hotkey: hotkey.trim() || "CommandOrControl+Alt+J",
     startHidden: settings.startHidden,
     lockOnHide: settings.lockOnHide,
+    idleLockMinutes: settings.idleLockMinutes,
     backupHistoryEnabled: settings.backupHistoryEnabled,
     backupHistoryLimit: settings.backupHistoryLimit,
     encryptLocalData: settings.storageEncrypted,
@@ -763,6 +765,7 @@ export default function App() {
   const [leftPaneMode, setLeftPaneMode] = useState<LeftPaneMode>("document");
   const [formatPanelExpanded, setFormatPanelExpanded] = useState(() => window.innerWidth >= 1280);
   const [privacyLocked, setPrivacyLocked] = useState(false);
+  const [currentPrivacyPinDraft, setCurrentPrivacyPinDraft] = useState("");
   const [privacyPinDraft, setPrivacyPinDraft] = useState("");
   const [clearPrivacyPin, setClearPrivacyPin] = useState(false);
   const [unlockPin, setUnlockPin] = useState("");
@@ -1657,12 +1660,14 @@ export default function App() {
     try {
       const next = await window.suiji.updateSettings({
         ...settingsPayload(settings ?? DEFAULT_APP_SETTINGS, hotkeyDraft),
+        currentPrivacyPin: currentPrivacyPinDraft.trim() || undefined,
         privacyPin: privacyPinDraft.trim() || undefined,
         clearPrivacyPin
       });
       setSettings(next);
       setHotkeyDraft(next.hotkey);
       setHotkeyStatus("");
+      setCurrentPrivacyPinDraft("");
       setPrivacyPinDraft("");
       setClearPrivacyPin(false);
       setDataActionStatus("");
@@ -1676,41 +1681,68 @@ export default function App() {
   }
 
   async function handleBackupAllNotes() {
-    setDataActionStatus("正在备份...");
-    await saveActive({ skipClean: true });
-    const filePath = await window.suiji.backupAllNotes();
-    setDataActionStatus(filePath ? `备份已保存：${filePath}` : "已取消备份");
+    try {
+      setDataActionStatus("正在备份...");
+      await saveActive({ skipClean: true });
+      const filePath = await window.suiji.backupAllNotes({
+        encrypted: false,
+        currentPrivacyPin: currentPrivacyPinDraft.trim() || undefined
+      });
+      setDataActionStatus(filePath ? `备份已保存：${filePath}` : "已取消备份");
+    } catch (error) {
+      setDataActionStatus(error instanceof Error ? error.message : "备份失败");
+    }
+  }
+
+  async function handleEncryptedBackupAllNotes() {
+    try {
+      setDataActionStatus("正在导出加密备份...");
+      await saveActive({ skipClean: true });
+      const filePath = await window.suiji.backupAllNotes({
+        encrypted: true,
+        currentPrivacyPin: currentPrivacyPinDraft.trim() || undefined
+      });
+      setDataActionStatus(filePath ? `加密备份已保存：${filePath}` : "已取消加密备份");
+    } catch (error) {
+      setDataActionStatus(error instanceof Error ? error.message : "加密备份失败");
+    }
   }
 
   async function handleRestoreNotesBackup() {
-    setDataActionStatus("正在恢复...");
-    await saveActive({ skipClean: true });
-    const result = await window.suiji.restoreNotesBackup();
-    if (!result) {
-      setDataActionStatus("已取消恢复");
-      return;
-    }
+    try {
+      setDataActionStatus("正在恢复...");
+      await saveActive({ skipClean: true });
+      const result = await window.suiji.restoreNotesBackup({
+        currentPrivacyPin: currentPrivacyPinDraft.trim() || undefined
+      });
+      if (!result) {
+        setDataActionStatus("已取消恢复");
+        return;
+      }
 
-    const loadedNotes = await window.suiji.listNotes();
-    let nextNotes = loadedNotes;
-    if (nextNotes.length === 0) {
-      const created = await window.suiji.createNote();
-      nextNotes = [created];
+      const loadedNotes = await window.suiji.listNotes();
+      let nextNotes = loadedNotes;
+      if (nextNotes.length === 0) {
+        const created = await window.suiji.createNote();
+        nextNotes = [created];
+      }
+      const nextActive = nextNotes.find((note) => note.id === activeId) ?? nextNotes[0];
+      setNotes(nextNotes);
+      setActiveId(nextActive?.id || "");
+      if (nextActive && editor) {
+        setTitle(nextActive.title);
+        setTagsDraft(nextActive.tags.join(", "));
+        setFolderDraft(nextActive.folder);
+        editor.commands.setContent(nextActive.content, false);
+        setEditorText(getContentPlainText(nextActive.content));
+        setOutlineItems(extractOutline(editor));
+        revisionRef.current = 0;
+        setSaveState("saved");
+      }
+      setDataActionStatus(`恢复完成：导入 ${result.imported}/${result.total} 条，跳过 ${result.skipped} 条`);
+    } catch (error) {
+      setDataActionStatus(error instanceof Error ? error.message : "恢复失败");
     }
-    const nextActive = nextNotes.find((note) => note.id === activeId) ?? nextNotes[0];
-    setNotes(nextNotes);
-    setActiveId(nextActive?.id || "");
-    if (nextActive && editor) {
-      setTitle(nextActive.title);
-      setTagsDraft(nextActive.tags.join(", "));
-      setFolderDraft(nextActive.folder);
-      editor.commands.setContent(nextActive.content, false);
-      setEditorText(getContentPlainText(restored.content));
-      setOutlineItems(extractOutline(editor));
-      revisionRef.current = 0;
-      setSaveState("saved");
-    }
-    setDataActionStatus(`恢复完成：导入 ${result.imported}/${result.total} 条，跳过 ${result.skipped} 条`);
   }
 
   async function handleOpenDataFolder() {
@@ -3046,6 +3078,38 @@ export default function App() {
                       }
                     />
                   </label>
+                  <label className="settings-field">
+                    <span>闲置自动锁定（分钟）</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={240}
+                      value={settings?.idleLockMinutes ?? 0}
+                      onChange={(event) =>
+                        setSettings((current) =>
+                          current
+                            ? {
+                                ...current,
+                                idleLockMinutes: Math.min(Math.max(Number(event.target.value) || 0, 0), 240)
+                              }
+                            : current
+                        )
+                      }
+                    />
+                    <small className="setting-hint">`0` 表示关闭；开启后达到时长会自动进入锁定态。</small>
+                  </label>
+                  <label className="settings-field">
+                    <span>{settings?.hasPrivacyPin ? "当前隐私密码" : "备份解密密码"}</span>
+                    <input
+                      type="password"
+                      value={currentPrivacyPinDraft}
+                      onChange={(event) => setCurrentPrivacyPinDraft(event.target.value)}
+                      placeholder={settings?.hasPrivacyPin ? "关闭加密、更换 PIN、加密导出时需要" : "恢复加密备份时输入对应密码"}
+                    />
+                    <small className="setting-hint">
+                      {settings?.hasPrivacyPin ? "敏感操作会要求再次验证当前 PIN。" : "仅在恢复加密备份或导出加密备份时使用。"}
+                    </small>
+                  </label>
                   <label className="settings-field settings-field-wide">
                     <span>{settings?.hasPrivacyPin ? "更换隐私密码" : "设置隐私密码"}</span>
                     <input
@@ -3150,6 +3214,10 @@ export default function App() {
                       <button type="button" onClick={() => void handleBackupAllNotes()}>
                         <Download size={16} />
                         备份全部
+                      </button>
+                      <button type="button" onClick={() => void handleEncryptedBackupAllNotes()}>
+                        <Lock size={16} />
+                        加密备份
                       </button>
                       <button type="button" onClick={() => void handleRestoreNotesBackup()}>
                         <Upload size={16} />

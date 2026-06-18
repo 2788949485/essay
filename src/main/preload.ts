@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   AppSettings,
+  BackupExportOptions,
+  BackupImportOptions,
   BackupEntry,
   BatchExportFormat,
   ExportPayload,
@@ -23,8 +25,9 @@ const api = {
   listNoteBackups: (id: string) => ipcRenderer.invoke("notes:list-backups", id) as Promise<BackupEntry[]>,
   restoreNoteBackup: (id: string, fileName: string) =>
     ipcRenderer.invoke("notes:restore-backup-version", id, fileName) as Promise<NoteRecord>,
-  backupAllNotes: () => ipcRenderer.invoke("notes:backup-all") as Promise<string | null>,
-  restoreNotesBackup: () => ipcRenderer.invoke("notes:restore-backup") as Promise<RestoreResult | null>,
+  backupAllNotes: (options: BackupExportOptions) => ipcRenderer.invoke("notes:backup-all", options) as Promise<string | null>,
+  restoreNotesBackup: (options: BackupImportOptions) =>
+    ipcRenderer.invoke("notes:restore-backup", options) as Promise<RestoreResult | null>,
   importMarkdownNotes: () => ipcRenderer.invoke("notes:import-markdown") as Promise<NoteRecord[]>,
   batchExportNotes: (format: BatchExportFormat) =>
     ipcRenderer.invoke("notes:batch-export", format) as Promise<{ directory: string; count: number } | null>,

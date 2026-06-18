@@ -24,6 +24,7 @@ export type AppSettings = {
   hotkey: string;
   startHidden: boolean;
   lockOnHide: boolean;
+  idleLockMinutes: number;
   hasPrivacyPin: boolean;
   backupHistoryEnabled: boolean;
   backupHistoryLimit: number;
@@ -41,6 +42,7 @@ export type SettingsUpdatePayload = {
   hotkey: string;
   startHidden: boolean;
   lockOnHide: boolean;
+  idleLockMinutes: number;
   backupHistoryEnabled: boolean;
   backupHistoryLimit: number;
   encryptLocalData: boolean;
@@ -50,8 +52,18 @@ export type SettingsUpdatePayload = {
   fontSize: number;
   lineWidth: number;
   lineHeight: number;
+  currentPrivacyPin?: string;
   privacyPin?: string;
   clearPrivacyPin?: boolean;
+};
+
+export type BackupExportOptions = {
+  encrypted: boolean;
+  currentPrivacyPin?: string;
+};
+
+export type BackupImportOptions = {
+  currentPrivacyPin?: string;
 };
 
 export type BatchExportFormat = "html" | "json" | "txt" | "md";
