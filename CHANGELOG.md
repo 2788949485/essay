@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.1 - 2026-06-18
+
+- Reworked the settings dialog into clearer Preference, Security, and Data sections with stronger card hierarchy and better scanability.
+- Pulled backup retention, encryption, and data-management actions into more deliberate grouped layouts instead of one long stacked form.
+
 ## 0.9.0 - 2026-06-18
 
 - Added switches for local history retention so automatic note-version backups can be disabled entirely or capped to a smaller count.

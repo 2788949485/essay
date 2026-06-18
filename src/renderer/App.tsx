@@ -2951,167 +2951,228 @@ export default function App() {
               <h2>设置</h2>
               <p className="modal-description">统一管理快捷键、隐私保护和本地数据目录。</p>
             </div>
-            <label>
-              <span>全局快捷键</span>
-              <input
-                value={hotkeyDraft}
-                readOnly
-                onKeyDown={(event) => void handleHotkeyRecord(event)}
-                onFocus={() => setHotkeyStatus("按下新的快捷键组合")}
-              />
-              {hotkeyStatus ? <small className="setting-hint">{hotkeyStatus}</small> : null}
-            </label>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={settings?.startHidden ?? false}
-                onChange={(event) =>
-                  setSettings((current) =>
-                    current ? { ...current, startHidden: event.target.checked } : current
-                  )
-                }
-              />
-              <span>启动后隐藏到托盘</span>
-            </label>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={settings?.launchAtLogin ?? false}
-                onChange={(event) =>
-                  setSettings((current) =>
-                    current ? { ...current, launchAtLogin: event.target.checked } : current
-                  )
-                }
-              />
-              <span>开机自动启动</span>
-            </label>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={settings?.lockOnHide ?? true}
-                onChange={(event) =>
-                  setSettings((current) =>
-                    current ? { ...current, lockOnHide: event.target.checked } : current
-                  )
-                }
-              />
-              <span>隐藏后重新打开时保护内容</span>
-            </label>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={settings?.backupHistoryEnabled ?? true}
-                onChange={(event) =>
-                  setSettings((current) =>
-                    current ? { ...current, backupHistoryEnabled: event.target.checked } : current
-                  )
-                }
-              />
-              <span>保留自动历史版本</span>
-            </label>
-            <label>
-              <span>历史版本最多保留份数</span>
-              <input
-                type="number"
-                min={1}
-                max={200}
-                value={settings?.backupHistoryLimit ?? 80}
-                disabled={!(settings?.backupHistoryEnabled ?? true)}
-                onChange={(event) =>
-                  setSettings((current) =>
-                    current
-                      ? {
-                          ...current,
-                          backupHistoryLimit: Math.min(Math.max(Number(event.target.value) || 1, 1), 200)
-                        }
-                      : current
-                  )
-                }
-              />
-              <small className="setting-hint">关闭后不再生成本地历史副本，并清空已有版本记录。</small>
-            </label>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={settings?.theme === "dark"}
-                onChange={(event) =>
-                  setSettings((current) =>
-                    current ? { ...current, theme: event.target.checked ? "dark" : "light" } : current
-                  )
-                }
-              />
-              <span>深色模式</span>
-            </label>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={settings?.storageEncrypted ?? false}
-                disabled={!settings?.hasPrivacyPin && !privacyPinDraft.trim()}
-                onChange={(event) =>
-                  setSettings((current) =>
-                    current ? { ...current, storageEncrypted: event.target.checked } : current
-                  )
-                }
-              />
-              <span>使用隐私密码加密本地数据库和历史备份</span>
-            </label>
-            <label>
-              <span>{settings?.hasPrivacyPin ? "更换隐私密码" : "设置隐私密码"}</span>
-              <input
-                type="password"
-                value={privacyPinDraft}
-                onChange={(event) => {
-                  setPrivacyPinDraft(event.target.value);
-                  setClearPrivacyPin(false);
-                }}
-                placeholder={settings?.hasPrivacyPin ? "留空则不修改；开启加密时可在此重新输入" : "可选，开启加密前需要先输入"}
-              />
-            </label>
-            <small className="setting-hint">
-              开启后，`suiji.db`、历史版本和整库备份会改为 PIN 加密；普通导出的 `md/html/txt/pdf/json` 仍然是明文。
-            </small>
-            {settings?.hasPrivacyPin ? (
-              <label className="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={clearPrivacyPin}
-                  onChange={(event) => {
-                    setClearPrivacyPin(event.target.checked);
-                    if (event.target.checked) setPrivacyPinDraft("");
-                    setSettings((current) =>
-                      current ? { ...current, storageEncrypted: event.target.checked ? false : current.storageEncrypted } : current
-                    );
-                  }}
-                />
-                <span>移除隐私密码</span>
-              </label>
-            ) : null}
-            <section className="data-tools" aria-label="数据管理">
-              <h3>数据管理</h3>
-              <div className="data-tool-grid">
-                <button type="button" onClick={() => void handleBackupAllNotes()}>
-                  <Download size={16} />
-                  备份全部
-                </button>
-                <button type="button" onClick={() => void handleRestoreNotesBackup()}>
-                  <Upload size={16} />
-                  恢复备份
-                </button>
-                <button type="button" onClick={() => void handleImportMarkdown()}>
-                  <Upload size={16} />
-                  导入 MD
-                </button>
-                <button type="button" onClick={() => void handleOpenDataFolder()}>
-                  <FolderOpen size={16} />
-                  数据目录
-                </button>
-                <button type="button" onClick={() => void handleChangeDataFolder()}>
-                  <Folder size={16} />
-                  修改目录
-                </button>
-              </div>
-              {dataActionStatus ? <p>{dataActionStatus}</p> : null}
-            </section>
+            <div className="settings-layout">
+              <section className="settings-group" aria-label="基础偏好">
+                <div className="settings-group-header">
+                  <div>
+                    <span className="settings-group-kicker">基础</span>
+                    <h3>偏好</h3>
+                    <p>先处理窗口呼出方式和日常使用习惯。</p>
+                  </div>
+                </div>
+                <div className="settings-group-grid">
+                  <label className="settings-field settings-field-wide">
+                    <span>全局快捷键</span>
+                    <input
+                      value={hotkeyDraft}
+                      readOnly
+                      onKeyDown={(event) => void handleHotkeyRecord(event)}
+                      onFocus={() => setHotkeyStatus("按下新的快捷键组合")}
+                    />
+                    {hotkeyStatus ? <small className="setting-hint">{hotkeyStatus}</small> : null}
+                  </label>
+                  <label className="settings-toggle">
+                    <div className="settings-toggle-copy">
+                      <strong>启动后隐藏到托盘</strong>
+                      <small>减少启动时对桌面的打断。</small>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={settings?.startHidden ?? false}
+                      onChange={(event) =>
+                        setSettings((current) =>
+                          current ? { ...current, startHidden: event.target.checked } : current
+                        )
+                      }
+                    />
+                  </label>
+                  <label className="settings-toggle">
+                    <div className="settings-toggle-copy">
+                      <strong>开机自动启动</strong>
+                      <small>系统登录后自动待命。</small>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={settings?.launchAtLogin ?? false}
+                      onChange={(event) =>
+                        setSettings((current) =>
+                          current ? { ...current, launchAtLogin: event.target.checked } : current
+                        )
+                      }
+                    />
+                  </label>
+                  <label className="settings-toggle">
+                    <div className="settings-toggle-copy">
+                      <strong>深色模式</strong>
+                      <small>切换整体界面主题。</small>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={settings?.theme === "dark"}
+                      onChange={(event) =>
+                        setSettings((current) =>
+                          current ? { ...current, theme: event.target.checked ? "dark" : "light" } : current
+                        )
+                      }
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <section className="settings-group settings-group-security" aria-label="安全与隐私">
+                <div className="settings-group-header">
+                  <div>
+                    <span className="settings-group-kicker">安全</span>
+                    <h3>隐私保护</h3>
+                    <p>把锁屏、PIN 和本地加密放在一个清晰的区域里。</p>
+                  </div>
+                  <span className={settings?.storageEncrypted ? "settings-status-pill is-active" : "settings-status-pill"}>
+                    {settings?.storageEncrypted ? "已加密" : "未加密"}
+                  </span>
+                </div>
+                <div className="settings-group-grid">
+                  <label className="settings-toggle settings-field-wide">
+                    <div className="settings-toggle-copy">
+                      <strong>隐藏后重新打开时保护内容</strong>
+                      <small>窗口再次显示前先进入隐私锁界面。</small>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={settings?.lockOnHide ?? true}
+                      onChange={(event) =>
+                        setSettings((current) =>
+                          current ? { ...current, lockOnHide: event.target.checked } : current
+                        )
+                      }
+                    />
+                  </label>
+                  <label className="settings-field settings-field-wide">
+                    <span>{settings?.hasPrivacyPin ? "更换隐私密码" : "设置隐私密码"}</span>
+                    <input
+                      type="password"
+                      value={privacyPinDraft}
+                      onChange={(event) => {
+                        setPrivacyPinDraft(event.target.value);
+                        setClearPrivacyPin(false);
+                      }}
+                      placeholder={settings?.hasPrivacyPin ? "留空则不修改；开启加密时可在此重新输入" : "可选，开启加密前需要先输入"}
+                    />
+                    <small className="setting-hint">
+                      PIN 只保存在你的会话里，用来解锁和派生本地加密密钥。
+                    </small>
+                  </label>
+                  <label className="settings-toggle settings-field-wide">
+                    <div className="settings-toggle-copy">
+                      <strong>使用隐私密码加密本地数据库和历史备份</strong>
+                      <small>会加密 `suiji.db`、历史版本和整库备份；普通导出仍是明文。</small>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={settings?.storageEncrypted ?? false}
+                      disabled={!settings?.hasPrivacyPin && !privacyPinDraft.trim()}
+                      onChange={(event) =>
+                        setSettings((current) =>
+                          current ? { ...current, storageEncrypted: event.target.checked } : current
+                        )
+                      }
+                    />
+                  </label>
+                  {settings?.hasPrivacyPin ? (
+                    <label className="settings-toggle settings-toggle-danger settings-field-wide">
+                      <div className="settings-toggle-copy">
+                        <strong>移除隐私密码</strong>
+                        <small>关闭后会一并取消本地加密保护。</small>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={clearPrivacyPin}
+                        onChange={(event) => {
+                          setClearPrivacyPin(event.target.checked);
+                          if (event.target.checked) setPrivacyPinDraft("");
+                          setSettings((current) =>
+                            current ? { ...current, storageEncrypted: event.target.checked ? false : current.storageEncrypted } : current
+                          );
+                        }}
+                      />
+                    </label>
+                  ) : null}
+                </div>
+              </section>
+
+              <section className="settings-group" aria-label="数据与备份">
+                <div className="settings-group-header">
+                  <div>
+                    <span className="settings-group-kicker">数据</span>
+                    <h3>历史与文件</h3>
+                    <p>控制本地历史副本，并集中放置备份与目录操作。</p>
+                  </div>
+                </div>
+                <div className="settings-group-grid">
+                  <label className="settings-toggle settings-field-wide">
+                    <div className="settings-toggle-copy">
+                      <strong>保留自动历史版本</strong>
+                      <small>保存笔记时自动保留可恢复的本地版本。</small>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={settings?.backupHistoryEnabled ?? true}
+                      onChange={(event) =>
+                        setSettings((current) =>
+                          current ? { ...current, backupHistoryEnabled: event.target.checked } : current
+                        )
+                      }
+                    />
+                  </label>
+                  <label className="settings-field">
+                    <span>历史版本最多保留份数</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={200}
+                      value={settings?.backupHistoryLimit ?? 80}
+                      disabled={!(settings?.backupHistoryEnabled ?? true)}
+                      onChange={(event) =>
+                        setSettings((current) =>
+                          current
+                            ? {
+                                ...current,
+                                backupHistoryLimit: Math.min(Math.max(Number(event.target.value) || 1, 1), 200)
+                              }
+                            : current
+                        )
+                      }
+                    />
+                    <small className="setting-hint">关闭历史版本后会停止生成本地副本，并清空已有版本记录。</small>
+                  </label>
+                  <section className="data-tools settings-field settings-field-wide" aria-label="数据管理">
+                    <h3>数据管理</h3>
+                    <div className="data-tool-grid">
+                      <button type="button" onClick={() => void handleBackupAllNotes()}>
+                        <Download size={16} />
+                        备份全部
+                      </button>
+                      <button type="button" onClick={() => void handleRestoreNotesBackup()}>
+                        <Upload size={16} />
+                        恢复备份
+                      </button>
+                      <button type="button" onClick={() => void handleImportMarkdown()}>
+                        <Upload size={16} />
+                        导入 MD
+                      </button>
+                      <button type="button" onClick={() => void handleOpenDataFolder()}>
+                        <FolderOpen size={16} />
+                        数据目录
+                      </button>
+                      <button type="button" onClick={() => void handleChangeDataFolder()}>
+                        <Folder size={16} />
+                        修改目录
+                      </button>
+                    </div>
+                    {dataActionStatus ? <p className="settings-status-text">{dataActionStatus}</p> : null}
+                  </section>
+                </div>
+              </section>
+            </div>
             <div className="modal-actions">
               <button type="button" onClick={() => setSettingsOpen(false)}>
                 取消
