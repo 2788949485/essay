@@ -81,6 +81,13 @@ type OutlineItem = {
   pos: number;
 };
 
+type LinkDialogState = {
+  empty: boolean;
+  from: number;
+  to: number;
+  hasActiveLink: boolean;
+};
+
 type BlockMenuCommand = {
   id: string;
   label: string;
@@ -748,9 +755,12 @@ export default function App() {
   const [blockMenuOpen, setBlockMenuOpen] = useState(false);
   const [tableToolbarVisible, setTableToolbarVisible] = useState(false);
   const [metaEditorOpen, setMetaEditorOpen] = useState(false);
+  const [linkDialog, setLinkDialog] = useState<LinkDialogState | null>(null);
+  const [linkDraft, setLinkDraft] = useState("");
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const linkInputRef = useRef<HTMLInputElement | null>(null);
   const customColorInputRef = useRef<HTMLInputElement | null>(null);
   const editorWrapRef = useRef<HTMLDivElement | null>(null);
   const outlineTimerRef = useRef<number | null>(null);
@@ -968,6 +978,14 @@ export default function App() {
   useEffect(() => {
     saveStateRef.current = saveState;
   }, [saveState]);
+
+  useEffect(() => {
+    if (!linkDialog) return;
+    window.setTimeout(() => {
+      linkInputRef.current?.focus();
+      linkInputRef.current?.select();
+    }, 0);
+  }, [linkDialog]);
 
   useEffect(() => {
     if (!editor || !activeNote) return;
@@ -1257,6 +1275,13 @@ export default function App() {
 
   function focusEditorSoon() {
     window.setTimeout(() => editor?.commands.focus("end"), 0);
+  }
+
+  function normalizeLinkUrl(url: string) {
+    const trimmed = url.trim();
+    if (!trimmed) return "";
+    if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed;
+    return `https://${trimmed.replace(/^\/+/, "")}`;
   }
 
   function firstVisibleNote(source: NoteRecord[], mode = viewMode) {
@@ -1663,30 +1688,51 @@ export default function App() {
     if (!editor) return;
 
     const current = editor.getAttributes("link").href as string | undefined;
-    const url = window.prompt("链接地址", current || "https://");
-    if (url === null) return;
+    const { from, to, empty } = editor.state.selection;
+    setLinkDraft(current || "https://");
+    setLinkDialog({ from, to, empty, hasActiveLink: Boolean(current) });
+  }
 
-    const trimmedUrl = url.trim();
-    if (!trimmedUrl) {
-      editor.chain().focus().extendMarkRange("link").unsetLink().run();
+  function closeLinkDialog() {
+    setLinkDialog(null);
+    setLinkDraft("");
+    focusEditorSoon();
+  }
+
+  function applyLinkDialog() {
+    if (!editor || !linkDialog) return;
+
+    const normalizedUrl = normalizeLinkUrl(linkDraft);
+    if (!normalizedUrl) {
+      editor.chain().focus().setTextSelection({ from: linkDialog.from, to: linkDialog.to }).extendMarkRange("link").unsetLink().run();
+      closeLinkDialog();
       return;
     }
 
-    const { from, to, empty } = editor.state.selection;
-    if (empty) {
+    if (linkDialog.empty && !linkDialog.hasActiveLink) {
       editor
         .chain()
         .focus()
+        .setTextSelection(linkDialog.from)
         .insertContent({
           type: "text",
-          text: trimmedUrl,
-          marks: [{ type: "link", attrs: { href: trimmedUrl } }]
+          text: normalizedUrl,
+          marks: [{ type: "link", attrs: { href: normalizedUrl } }]
         })
         .run();
+      closeLinkDialog();
       return;
     }
 
-    editor.chain().focus().setTextSelection({ from, to }).extendMarkRange("link").setLink({ href: trimmedUrl }).run();
+    const selection = linkDialog.empty ? linkDialog.from : { from: linkDialog.from, to: linkDialog.to };
+    editor.chain().focus().setTextSelection(selection).extendMarkRange("link").setLink({ href: normalizedUrl }).run();
+    closeLinkDialog();
+  }
+
+  function removeLinkFromDialog() {
+    if (!editor || !linkDialog) return;
+    editor.chain().focus().setTextSelection({ from: linkDialog.from, to: linkDialog.to }).extendMarkRange("link").unsetLink().run();
+    closeLinkDialog();
   }
 
   const blockMenuCommands: BlockMenuCommand[] = [
@@ -2713,9 +2759,50 @@ export default function App() {
         ) : null}
       </section>
 
+      {linkDialog ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={closeLinkDialog}>
+          <div className="modal link-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-kicker">文本链接</span>
+              <h2>编辑链接</h2>
+              <p className="modal-description">
+                {linkDialog.empty ? "未选中文本时会直接插入一个可点击链接。" : "保存后会把当前选中文本更新为链接。"}
+              </p>
+            </div>
+            <label className="link-field">
+              <span>链接地址</span>
+              <input
+                ref={linkInputRef}
+                type="text"
+                value={linkDraft}
+                placeholder="https://example.com"
+                onChange={(event) => setLinkDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return;
+                  event.preventDefault();
+                  applyLinkDialog();
+                }}
+              />
+              <small className="setting-hint">支持直接输入域名，会自动补全为 `https://`。</small>
+            </label>
+            <div className="modal-actions link-modal-actions">
+              <button type="button" onClick={closeLinkDialog}>
+                取消
+              </button>
+              <button type="button" onClick={removeLinkFromDialog}>
+                移除链接
+              </button>
+              <button type="button" className="primary" onClick={applyLinkDialog}>
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {settingsOpen ? (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setSettingsOpen(false)}>
-          <div className="modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+          <div className="modal settings-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <span className="modal-kicker">偏好与数据</span>
               <h2>设置</h2>

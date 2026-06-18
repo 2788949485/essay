@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.6 - 2026-06-18
+
+- Unified the floating UI system so menus, the format panel, and modal dialogs share one layered surface language with softer Craft-like depth.
+- Reworked the format panel into clearer stacked cards and tightened hover, lift, and panel-entry motion across editing overlays.
+- Refined settings and history dialogs with structured inner surfaces and a calmer modal backdrop for more consistent transient interactions.
+
 ## 0.8.5 - 2026-06-18
 
 - Removed the unstable editor block hover toolbar and block chrome experiment that could leave the renderer on a white screen at startup.
