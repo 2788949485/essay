@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.9 - 2026-06-18
+
+- Fixed the editor insert menu so it opens toward the document interior and no longer gets clipped or covered by the left edge of the workspace.
+
+## 0.8.8 - 2026-06-18
+
+- Added runtime block hover and current-block focus treatment inside the editor without touching document structure or export output.
+- Refined empty-line insert feedback, collapsible block expand and collapse motion, and button press states so editor interactions feel softer and more deliberate.
+
 ## 0.8.7 - 2026-06-18
 
 - Replaced the broken system `prompt()` link action with an in-app link dialog that works inside Electron.

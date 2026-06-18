@@ -714,6 +714,27 @@ function keepEditorFocus(event: React.MouseEvent<HTMLButtonElement>) {
   event.preventDefault();
 }
 
+const EDITOR_INTERACTIVE_BLOCK_TAGS = new Set(["P", "H1", "H2", "H3", "BLOCKQUOTE", "PRE", "UL", "OL", "TABLE", "HR", "IMG"]);
+
+function findInteractiveEditorBlock(target: Node | null, root: HTMLElement | null) {
+  if (!target || !root) return null;
+
+  let element = target instanceof HTMLElement ? target : target.parentElement;
+  while (element && element !== root) {
+    if (element.classList.contains("collapsible-block")) return element;
+    if (element.classList.contains("tableWrapper") && element.parentElement === root) return element;
+    if ((element.tagName === "TD" || element.tagName === "TH") && root.contains(element)) {
+      return element.closest("table");
+    }
+    if (element.parentElement === root && EDITOR_INTERACTIVE_BLOCK_TAGS.has(element.tagName)) {
+      return element;
+    }
+    element = element.parentElement;
+  }
+
+  return null;
+}
+
 export default function App() {
   const [notes, setNotes] = useState<NoteRecord[]>([]);
   const [activeId, setActiveId] = useState<string>("");
@@ -763,6 +784,8 @@ export default function App() {
   const linkInputRef = useRef<HTMLInputElement | null>(null);
   const customColorInputRef = useRef<HTMLInputElement | null>(null);
   const editorWrapRef = useRef<HTMLDivElement | null>(null);
+  const hoveredBlockRef = useRef<HTMLElement | null>(null);
+  const currentBlockRef = useRef<HTMLElement | null>(null);
   const outlineTimerRef = useRef<number | null>(null);
   const activeIdRef = useRef("");
   const revisionRef = useRef(0);
@@ -833,6 +856,7 @@ export default function App() {
       if (!isEmptyParagraphSelection(editor) || activeNote?.trashedAt) {
         setBlockMenuOpen(false);
       }
+      window.requestAnimationFrame(syncCurrentEditorBlock);
     },
     onUpdate: ({ editor }) => {
       markDirty();
@@ -846,6 +870,7 @@ export default function App() {
         setOutlineItems(extractOutline(editor));
         outlineTimerRef.current = null;
       }, 250);
+      window.requestAnimationFrame(syncCurrentEditorBlock);
     }
   });
 
@@ -855,6 +880,51 @@ export default function App() {
     currentBlockFormat.customColor ||
     FORMAT_COLORS.find((color) => color.id === currentBlockFormat.colorToken)?.swatch ||
     "#316ee8";
+
+  function syncInteractiveBlockElement(element: HTMLElement | null) {
+    if (!element) return;
+    const active = element === hoveredBlockRef.current || element === currentBlockRef.current;
+    element.classList.toggle("editor-interactive-block", active);
+    element.classList.toggle("is-hovered-block", element === hoveredBlockRef.current);
+    element.classList.toggle("is-current-block", element === currentBlockRef.current);
+  }
+
+  function setHoveredEditorBlock(next: HTMLElement | null) {
+    const previous = hoveredBlockRef.current;
+    if (previous === next) return;
+    hoveredBlockRef.current = next;
+    if (next) next.classList.add("editor-interactive-block");
+    syncInteractiveBlockElement(previous);
+    syncInteractiveBlockElement(next);
+  }
+
+  function setCurrentEditorBlock(next: HTMLElement | null) {
+    const previous = currentBlockRef.current;
+    if (previous === next) return;
+    currentBlockRef.current = next;
+    if (next) next.classList.add("editor-interactive-block");
+    syncInteractiveBlockElement(previous);
+    syncInteractiveBlockElement(next);
+  }
+
+  function syncCurrentEditorBlock() {
+    if (!editor) return;
+    const root = editor.view.dom as HTMLElement | null;
+    const anchorNode = editor.view.domAtPos(editor.state.selection.from).node;
+    const next = findInteractiveEditorBlock(anchorNode, root);
+    setCurrentEditorBlock(next);
+  }
+
+  function updateHoveredEditorBlock(target: EventTarget | null) {
+    if (!editor) return;
+    if (target instanceof HTMLElement && target.closest(".block-insert-anchor, .block-insert-menu, .selection-toolbar, .table-toolbar")) {
+      setHoveredEditorBlock(null);
+      return;
+    }
+    const root = editor.view.dom as HTMLElement | null;
+    const next = target instanceof Node ? findInteractiveEditorBlock(target, root) : null;
+    setHoveredEditorBlock(next);
+  }
 
   function focusBlockAtPos(pos: number) {
     if (!editor) return;
@@ -986,6 +1056,18 @@ export default function App() {
       linkInputRef.current?.select();
     }, 0);
   }, [linkDialog]);
+
+  useEffect(() => {
+    if (!editor) return;
+    window.requestAnimationFrame(syncCurrentEditorBlock);
+  }, [activeNote?.id, editor]);
+
+  useEffect(() => {
+    return () => {
+      setHoveredEditorBlock(null);
+      setCurrentEditorBlock(null);
+    };
+  }, []);
 
   useEffect(() => {
     if (!editor || !activeNote) return;
@@ -2396,6 +2478,8 @@ export default function App() {
             <div
               ref={editorWrapRef}
               className="editor-wrap"
+              onMouseMove={(event) => updateHoveredEditorBlock(event.target)}
+              onMouseLeave={() => setHoveredEditorBlock(null)}
               onMouseDown={(event) => {
                 if (event.target === event.currentTarget) {
                   event.preventDefault();
@@ -2417,7 +2501,14 @@ export default function App() {
               {editor ? (
                 <FloatingMenu
                   editor={editor}
-                  tippyOptions={{ duration: 120, placement: "left-start", maxWidth: "none", offset: [0, 8] }}
+                  tippyOptions={{
+                    duration: 120,
+                    placement: "right-start",
+                    maxWidth: "none",
+                    offset: [8, 8],
+                    appendTo: () => document.body,
+                    zIndex: 40000,
+                  }}
                   shouldShow={({ editor }) => isEmptyParagraphSelection(editor) && !activeNote?.trashedAt}
                 >
                   <div className="block-insert-anchor">
