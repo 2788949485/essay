@@ -2684,6 +2684,7 @@ input[type="range"] {
 
 .settings-modal > label,
 .settings-modal > .checkbox-row,
+.link-field,
 .data-tools,
 .history-list,
 .confirm-copy {
@@ -2695,6 +2696,20 @@ input[type="range"] {
 
 .settings-modal > label {
   padding: 14px 14px 12px;
+}
+
+.link-modal {
+  width: min(440px, calc(100vw - 32px));
+}
+
+.link-field {
+  display: grid;
+  gap: 8px;
+  padding: 14px 14px 12px;
+}
+
+.link-modal-actions {
+  justify-content: space-between;
 }
 
 .modal input[type="range"] {

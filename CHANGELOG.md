@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.7 - 2026-06-18
+
+- Replaced the broken system `prompt()` link action with an in-app link dialog that works inside Electron.
+- Improved link editing so you can add, update, or remove links without leaving the editor flow, and plain domains now auto-complete to `https://`.
+
 ## 0.8.6 - 2026-06-18
 
 - Unified the floating UI system so menus, the format panel, and modal dialogs share one layered surface language with softer Craft-like depth.

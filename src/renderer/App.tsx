@@ -1277,6 +1277,12 @@ export default function App() {
     window.setTimeout(() => editor?.commands.focus("end"), 0);
   }
 
+  function focusEditorSelectionSoon(selection: number | { from: number; to: number }) {
+    window.setTimeout(() => {
+      editor?.chain().focus().setTextSelection(selection).run();
+    }, 0);
+  }
+
   function normalizeLinkUrl(url: string) {
     const trimmed = url.trim();
     if (!trimmed) return "";
@@ -1694,8 +1700,13 @@ export default function App() {
   }
 
   function closeLinkDialog() {
+    const selection = linkDialog ? (linkDialog.empty ? linkDialog.from : { from: linkDialog.from, to: linkDialog.to }) : null;
     setLinkDialog(null);
     setLinkDraft("");
+    if (selection !== null) {
+      focusEditorSelectionSoon(selection);
+      return;
+    }
     focusEditorSoon();
   }
 
