@@ -2503,10 +2503,9 @@ export default function App() {
                   editor={editor}
                   tippyOptions={{
                     duration: 120,
-                    placement: "right-start",
+                    placement: "left-start",
                     maxWidth: "none",
-                    offset: [8, 8],
-                    appendTo: () => document.body,
+                    offset: [0, 8],
                     zIndex: 40000,
                   }}
                   shouldShow={({ editor }) => isEmptyParagraphSelection(editor) && !activeNote?.trashedAt}

@@ -1633,7 +1633,9 @@ input[type="range"] {
   z-index: 1;
   display: inline-flex;
   align-items: flex-start;
-  gap: 8px;
+  width: 28px;
+  min-width: 28px;
+  overflow: visible;
   border: 0;
   background: transparent;
   box-shadow: none;
@@ -1686,7 +1688,9 @@ input[type="range"] {
   gap: 2px;
   border-radius: 18px;
   padding: 8px;
-  position: relative;
+  position: absolute;
+  top: 0;
+  left: calc(100% + 10px);
   z-index: 2;
   transform-origin: top left;
 }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.10 - 2026-06-18
+
+- Kept the editor `+` insert button anchored in its original position and changed only the menu to float out from the button's right side so it no longer gets clipped by the left edge.
+- Fixed the insert-menu interaction regression introduced in `0.8.9`.
+
 ## 0.8.9 - 2026-06-18
 
 - Fixed the editor insert menu so it opens toward the document interior and no longer gets clipped or covered by the left edge of the workspace.
