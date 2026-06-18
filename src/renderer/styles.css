@@ -123,6 +123,12 @@ input::placeholder {
   --scrollbar-thumb-hover-strong: rgba(90, 106, 122, 0.72);
   --scrollbar-thumb-active: rgba(88, 105, 122, 0.68);
   --scrollbar-thumb-active-strong: rgba(72, 89, 105, 0.82);
+  --motion-fast: 140ms;
+  --motion-base: 180ms;
+  --motion-panel: 220ms;
+  --motion-slow: 280ms;
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-quick: cubic-bezier(0.2, 0.8, 0.2, 1);
   --shadow-soft: 0 20px 56px rgba(31, 41, 55, 0.08);
   --shadow-floating: 0 26px 66px rgba(31, 41, 55, 0.14);
   --shadow-paper: 0 28px 72px rgba(31, 41, 55, 0.1);
@@ -285,11 +291,12 @@ input::placeholder {
   background: var(--surface-soft);
   color: var(--muted-text);
   transition:
-    border-color 140ms ease,
-    background-color 140ms ease,
-    color 140ms ease,
-    transform 140ms ease,
-    box-shadow 140ms ease;
+    border-color var(--motion-fast) ease,
+    background-color var(--motion-base) var(--ease-smooth),
+    color var(--motion-base) var(--ease-smooth),
+    transform var(--motion-fast) ease,
+    box-shadow var(--motion-base) var(--ease-smooth),
+    opacity var(--motion-fast) ease;
 }
 
 .icon-button:hover,
@@ -299,11 +306,12 @@ input::placeholder {
   border-color: var(--line-soft);
   background: var(--surface-hover);
   color: var(--accent-color);
+  box-shadow: 0 10px 22px rgba(31, 41, 55, 0.08);
 }
 
 .icon-button:active,
 .tool-button:active {
-  transform: translateY(1px);
+  transform: translateY(1px) scale(0.98);
 }
 
 .primary-icon {
@@ -421,9 +429,11 @@ input::placeholder {
   color: var(--muted-text);
   line-height: 1;
   transition:
-    border-color 140ms ease,
-    background-color 140ms ease,
-    color 140ms ease;
+    border-color var(--motion-fast) ease,
+    background-color var(--motion-base) var(--ease-smooth),
+    color var(--motion-base) var(--ease-smooth),
+    transform var(--motion-fast) ease,
+    box-shadow var(--motion-base) var(--ease-smooth);
 }
 
 .view-switch button {
@@ -444,6 +454,8 @@ input::placeholder {
   border-color: var(--line-soft);
   background: var(--surface-hover);
   color: var(--accent-color);
+  box-shadow: 0 10px 20px rgba(31, 41, 55, 0.05);
+  transform: translateY(-1px);
 }
 
 .folder-filter,
@@ -625,8 +637,11 @@ input::placeholder {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--sidebar-mode-gap);
+  min-height: 60px;
+  overflow: hidden;
   border-radius: 999px;
   margin-top: auto;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.04) 100%);
   padding: var(--sidebar-mode-pad);
 }
 
@@ -641,13 +656,13 @@ input::placeholder {
   background: rgba(99, 145, 255, 0.18);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.66),
-    0 8px 18px rgba(74, 128, 255, 0.12);
+    0 12px 24px rgba(74, 128, 255, 0.14);
   transform: translateX(0);
   transition:
-    transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
-    background-color 180ms ease,
-    border-color 180ms ease,
-    box-shadow 180ms ease;
+    transform var(--motion-slow) var(--ease-smooth),
+    background-color var(--motion-base) ease,
+    border-color var(--motion-base) ease,
+    box-shadow var(--motion-base) ease;
 }
 
 .sidebar-mode-switch.is-files .sidebar-mode-thumb {
@@ -670,14 +685,20 @@ input::placeholder {
   font-size: 13px;
   font-weight: 650;
   transition:
-    color 180ms ease,
-    opacity 180ms ease;
+    color var(--motion-base) var(--ease-smooth),
+    opacity var(--motion-base) var(--ease-smooth),
+    transform var(--motion-fast) ease;
+}
+
+.sidebar-mode-button:hover {
+  color: var(--text-color);
+  transform: translateY(-1px);
 }
 
 .sidebar-mode-button.is-active {
   border-color: transparent;
   background: transparent;
-  color: #2b5eb4;
+  color: var(--accent-color);
 }
 
 .recent-timeline,
@@ -702,15 +723,19 @@ input::placeholder {
   padding: 10px 12px;
   text-align: left;
   transition:
-    border-color 140ms ease,
-    background-color 140ms ease,
-    color 140ms ease;
+    border-color var(--motion-fast) ease,
+    background-color var(--motion-base) var(--ease-smooth),
+    color var(--motion-base) var(--ease-smooth),
+    transform var(--motion-fast) ease,
+    box-shadow var(--motion-base) var(--ease-smooth);
 }
 
 .recent-timeline button:hover,
 .recent-timeline button.is-active {
   border-color: var(--line-soft);
   background: var(--surface-hover);
+  box-shadow: 0 12px 24px rgba(31, 41, 55, 0.06);
+  transform: translateY(-1px);
 }
 
 .recent-timeline span {
@@ -739,6 +764,7 @@ input::placeholder {
 }
 
 .note-item {
+  position: relative;
   display: grid;
   width: 100%;
   min-height: 0;
@@ -753,10 +779,27 @@ input::placeholder {
   cursor: pointer;
   text-align: left;
   transition:
-    border-color 140ms ease,
-    background-color 140ms ease,
-    box-shadow 140ms ease,
-    transform 140ms ease;
+    border-color var(--motion-fast) ease,
+    background-color var(--motion-base) var(--ease-smooth),
+    box-shadow var(--motion-panel) var(--ease-smooth),
+    transform var(--motion-fast) ease;
+}
+
+.note-item::before {
+  content: "";
+  position: absolute;
+  top: 11px;
+  bottom: 11px;
+  left: 8px;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--accent-color) 0%, var(--accent-strong) 100%);
+  opacity: 0;
+  transform: scaleY(0.7);
+  transform-origin: center;
+  transition:
+    opacity var(--motion-base) var(--ease-smooth),
+    transform var(--motion-base) var(--ease-smooth);
 }
 
 .tag-filter button,
@@ -806,12 +849,27 @@ input::placeholder {
 .note-item:focus-visible {
   border-color: var(--line-soft);
   background: var(--surface-hover);
-  box-shadow: 0 10px 24px rgba(44, 36, 25, 0.06);
+  box-shadow: 0 16px 30px rgba(44, 36, 25, 0.08);
+  transform: translateY(-1px);
   outline: 0;
 }
 
 .note-item.is-active {
   background: var(--surface-active);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.48),
+    0 18px 34px rgba(31, 41, 55, 0.1);
+}
+
+.note-item:hover::before,
+.note-item.is-active::before,
+.note-item:focus-visible::before {
+  opacity: 0.62;
+  transform: scaleY(1);
+}
+
+.note-item.is-active::before {
+  opacity: 1;
 }
 
 .note-item-header {
@@ -852,8 +910,10 @@ input::placeholder {
   gap: 2px;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(2px);
-  transition: opacity 140ms ease, transform 140ms ease;
+  transform: translateY(4px);
+  transition:
+    opacity var(--motion-fast) ease,
+    transform var(--motion-base) var(--ease-smooth);
 }
 
 .note-item:hover .note-actions,
@@ -875,6 +935,11 @@ input::placeholder {
   background: transparent;
   color: var(--subtle-text);
   padding: 0;
+  transition:
+    border-color var(--motion-fast) ease,
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    transform var(--motion-fast) ease;
 }
 
 .note-actions svg {
@@ -886,6 +951,7 @@ input::placeholder {
   border-color: var(--line-soft);
   background: var(--surface-soft);
   color: var(--accent-color);
+  transform: translateY(-1px);
 }
 
 .note-actions button:last-child:hover {
@@ -1318,10 +1384,11 @@ input::placeholder {
   background: var(--surface-soft);
   color: var(--text-color);
   transition:
-    border-color 140ms ease,
-    background-color 140ms ease,
-    color 140ms ease,
-    transform 140ms ease;
+    border-color var(--motion-fast) ease,
+    background-color var(--motion-base) var(--ease-smooth),
+    color var(--motion-base) var(--ease-smooth),
+    transform var(--motion-fast) ease,
+    box-shadow var(--motion-base) var(--ease-smooth);
 }
 
 .export-button {
@@ -1343,6 +1410,8 @@ input::placeholder {
   border-color: var(--line-strong);
   background: var(--surface-hover);
   color: var(--accent-color);
+  box-shadow: 0 10px 24px rgba(31, 41, 55, 0.08);
+  transform: translateY(-1px);
 }
 
 .export-menu,
@@ -1362,6 +1431,8 @@ input::placeholder {
   right: 0;
   z-index: 20;
   border-radius: 20px;
+  transform-origin: top right;
+  animation: panel-pop var(--motion-panel) var(--ease-smooth);
 }
 
 .export-menu {
@@ -1435,6 +1506,8 @@ input[type="range"] {
   gap: 8px;
   border-radius: 22px;
   padding: 10px;
+  transform-origin: top right;
+  animation: panel-pop var(--motion-panel) var(--ease-smooth);
 }
 
 .find-inputs {
@@ -2083,11 +2156,29 @@ input[type="range"] {
 .editor-surface .collapsible-block {
   margin: 18px 0;
   border-left: 2px solid rgba(208, 214, 223, 0.92);
+  border-radius: 18px;
+  background: transparent;
   padding-left: 18px;
+  transition:
+    border-left-color var(--motion-base) var(--ease-smooth),
+    background-color var(--motion-base) var(--ease-smooth),
+    box-shadow var(--motion-panel) var(--ease-smooth),
+    transform var(--motion-fast) ease;
 }
 
 .editor-surface .collapsible-block.is-selected {
   border-left-color: rgba(86, 118, 235, 0.5);
+}
+
+.editor-surface .collapsible-block:hover {
+  border-left-color: color-mix(in srgb, var(--accent-color) 44%, rgba(208, 214, 223, 0.92));
+  transform: translateY(-1px);
+}
+
+.editor-surface.ProseMirror-focused .collapsible-block.is-current-block {
+  border-left-color: color-mix(in srgb, var(--accent-color) 62%, rgba(208, 214, 223, 0.92));
+  background: color-mix(in srgb, var(--accent-color) 6%, transparent);
+  box-shadow: 0 16px 34px rgba(31, 41, 55, 0.08);
 }
 
 .editor-surface .collapsible-block-header {
@@ -2110,7 +2201,13 @@ input[type="range"] {
   border-radius: 8px;
   background: transparent;
   color: var(--subtle-text);
+  opacity: 0.4;
   padding: 0;
+  transition:
+    opacity var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    transform var(--motion-fast) ease,
+    background-color var(--motion-fast) ease;
 }
 
 .editor-surface .collapsible-block-drag {
@@ -2122,7 +2219,11 @@ input[type="range"] {
 }
 
 .editor-surface .collapsible-block-toggle {
-  transition: color 140ms ease, transform 180ms ease;
+  transition:
+    opacity var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    transform var(--motion-panel) var(--ease-smooth),
+    background-color var(--motion-fast) ease;
 }
 
 .editor-surface .collapsible-block-toggle.is-open {
@@ -2140,7 +2241,8 @@ input[type="range"] {
   background: transparent;
   color: var(--text-color);
   font: inherit;
-  padding: 0;
+  padding: 2px 0;
+  transition: color var(--motion-fast) ease, opacity var(--motion-fast) ease;
 }
 
 .editor-surface .collapsible-block-title::placeholder {
@@ -2170,6 +2272,14 @@ input[type="range"] {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.7),
     0 10px 24px rgba(31, 41, 55, 0.08);
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity var(--motion-fast) ease,
+    transform var(--motion-base) var(--ease-smooth),
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    background-color var(--motion-fast) ease;
 }
 
 .editor-surface .collapsible-block-menu-trigger:hover,
@@ -2189,6 +2299,8 @@ input[type="range"] {
   background: var(--surface-raised);
   box-shadow: inset 0 1px 0 var(--panel-inset), var(--shadow-floating);
   padding: 6px;
+  transform-origin: top right;
+  animation: panel-pop var(--motion-panel) var(--ease-smooth);
 }
 
 .editor-surface .collapsible-block-menu-delete {
@@ -2209,11 +2321,24 @@ input[type="range"] {
 }
 
 .editor-surface .collapsible-block-body {
-  display: block;
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows var(--motion-panel) var(--ease-smooth),
+    opacity var(--motion-base) ease,
+    margin-top var(--motion-base) ease;
 }
 
 .editor-surface .collapsible-block[data-open="false"] .collapsible-block-body {
-  display: none;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.editor-surface .collapsible-block-content {
+  min-height: 0;
+  overflow: hidden;
 }
 
 .editor-surface .collapsible-block-content > :first-child {
@@ -2229,10 +2354,22 @@ input[type="range"] {
   color: var(--subtle-text);
   font: inherit;
   padding: 0 0 0 28px;
+  transition: color var(--motion-fast) ease, transform var(--motion-fast) ease, opacity var(--motion-fast) ease;
 }
 
 .editor-surface .collapsible-block-insert:hover {
   color: var(--text-color);
+  transform: translateX(2px);
+}
+
+.editor-surface .collapsible-block:hover .collapsible-block-drag,
+.editor-surface .collapsible-block:hover .collapsible-block-toggle,
+.editor-surface .collapsible-block:hover .collapsible-block-menu-trigger,
+.editor-surface .collapsible-block.is-current-block .collapsible-block-drag,
+.editor-surface .collapsible-block.is-current-block .collapsible-block-toggle,
+.editor-surface .collapsible-block.is-current-block .collapsible-block-menu-trigger {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .editor-surface table {
@@ -2440,6 +2577,7 @@ input[type="range"] {
   place-items: center;
   background: var(--backdrop);
   backdrop-filter: blur(12px);
+  animation: fade-in var(--motion-base) ease;
 }
 
 .modal {
@@ -2448,6 +2586,8 @@ input[type="range"] {
   overflow-y: auto;
   border-radius: 30px;
   padding: 24px;
+  transform-origin: center top;
+  animation: modal-rise var(--motion-slow) var(--ease-smooth);
 }
 
 .modal h2 {
@@ -2726,6 +2866,40 @@ input[type="range"] {
   font-size: 12px;
 }
 
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes panel-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes modal-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 @media (max-width: 1280px) {
   .topbar {
     gap: 14px;
@@ -2856,6 +3030,7 @@ input[type="range"] {
   .sidebar-mode-switch {
     --sidebar-mode-pad: 6px;
     --sidebar-mode-gap: 6px;
+    min-height: 52px;
   }
 
   .sidebar-mode-button {
@@ -3059,8 +3234,13 @@ input[type="range"] {
     font-size: 11px;
   }
 
+  .sidebar-mode-switch {
+    --sidebar-mode-pad: 5px;
+    min-height: 50px;
+  }
+
   .sidebar-mode-button {
-    height: 36px;
-    font-size: 11px;
+    height: 40px;
+    font-size: 12px;
   }
 }

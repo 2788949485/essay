@@ -125,6 +125,7 @@ const FONT_PRESETS: Array<{ id: FontPresetId; label: string; preview: string; fa
   { id: "rounded", label: "圆体", preview: "Rr", family: '"Arial Rounded MT Bold", "Hiragino Sans GB", "Microsoft YaHei", sans-serif' }
 ];
 
+
 const BlockFormatExtension = Extension.create({
   name: "blockFormat",
   addGlobalAttributes() {
@@ -844,6 +845,14 @@ export default function App() {
     currentBlockFormat.customColor ||
     FORMAT_COLORS.find((color) => color.id === currentBlockFormat.colorToken)?.swatch ||
     "#316ee8";
+
+  function focusBlockAtPos(pos: number) {
+    if (!editor) return;
+    const targetPos = Math.min(pos + 1, editor.state.doc.content.size);
+    const tr = editor.state.tr.setSelection(TextSelection.near(editor.state.doc.resolve(targetPos)));
+    editor.view.dispatch(tr);
+    editor.commands.focus();
+  }
 
   function applyBlockFormat(attributes: Partial<ReturnType<typeof getCurrentBlockFormat>>) {
     if (!editor || activeNote?.trashedAt) return;
