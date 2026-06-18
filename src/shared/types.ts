@@ -25,6 +25,10 @@ export type AppSettings = {
   startHidden: boolean;
   lockOnHide: boolean;
   hasPrivacyPin: boolean;
+  backupHistoryEnabled: boolean;
+  backupHistoryLimit: number;
+  storageEncrypted: boolean;
+  storageUnlocked: boolean;
   launchAtLogin: boolean;
   theme: "light" | "dark";
   fontFamily: string;
@@ -37,6 +41,9 @@ export type SettingsUpdatePayload = {
   hotkey: string;
   startHidden: boolean;
   lockOnHide: boolean;
+  backupHistoryEnabled: boolean;
+  backupHistoryLimit: number;
+  encryptLocalData: boolean;
   launchAtLogin: boolean;
   theme: "light" | "dark";
   fontFamily: string;

@@ -11,7 +11,7 @@
   Tray
 } from "electron";
 import type { MenuItemConstructorOptions, MessageBoxOptions } from "electron";
-import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -33,6 +33,8 @@ const MAX_TEXT_FIELD_LENGTH = 500_000;
 const MAX_PIN_LENGTH = 128;
 const MAX_FOLDER_LENGTH = 40;
 const EDIT_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
+const DEFAULT_BACKUP_HISTORY_LIMIT = 80;
+const MAX_BACKUP_HISTORY_LIMIT = 200;
 const ALLOWED_EXPORT_FORMATS = new Set(["html", "json", "txt", "md", "pdf"]);
 const ALLOWED_BATCH_EXPORT_FORMATS = new Set(["html", "json", "txt", "md"]);
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
@@ -40,15 +42,28 @@ const DB_FLUSH_DELAY_MS = 900;
 const DEBUG_LOG_PATH = process.env.SUIJI_DEBUG_LOG || "d:\\zhuomian\\essay\\runtime_cache\\suiji-debug.log";
 const DEBUG_PORT = process.env.SUIJI_DEBUG_PORT || "";
 
-type StoredSettings = Omit<AppSettings, "hasPrivacyPin"> & {
+type StoredSettings = Omit<AppSettings, "hasPrivacyPin" | "storageUnlocked"> & {
   privacyPinHash: string | null;
   privacyPinSalt: string | null;
+};
+
+type EncryptedEnvelope = {
+  app: "suiji";
+  kind: "encrypted";
+  version: 1;
+  salt: string;
+  iv: string;
+  tag: string;
+  data: string;
 };
 
 const DEFAULT_SETTINGS: StoredSettings = {
   hotkey: DEFAULT_HOTKEY,
   startHidden: false,
   lockOnHide: true,
+  backupHistoryEnabled: true,
+  backupHistoryLimit: DEFAULT_BACKUP_HISTORY_LIMIT,
+  storageEncrypted: false,
   launchAtLogin: false,
   theme: "light",
   fontFamily: "",
@@ -75,6 +90,8 @@ let notesDb: any = null;
 let notesDbDirty = false;
 let notesDbFlushTimer: NodeJS.Timeout | null = null;
 let notesDbPersistQueue: Promise<void> = Promise.resolve();
+let settingsCache: StoredSettings | null = null;
+let activePrivacyPin: string | null = null;
 
 type StorageConfig = {
   dataRoot?: string;
@@ -148,7 +165,28 @@ async function ensureStorage() {
   databaseVirtualPath = `/suiji-${createHash("sha1").update(dataRoot).digest("hex").slice(0, 16)}-${Date.now()}.db`;
   await fs.mkdir(notesDir, { recursive: true });
   await fs.mkdir(backupsDir, { recursive: true });
-  await initializeNotesDatabase();
+  settingsCache = null;
+  const settings = await readStoredSettings();
+  if (isStorageEncryptionEnabled(settings) && !activePrivacyPin) {
+    if (notesDb) {
+      notesDb.close();
+      notesDb = null;
+    }
+    return;
+  }
+  try {
+    await initializeNotesDatabase(settings);
+  } catch (error) {
+    if (isStorageEncryptionEnabled(settings)) {
+      activePrivacyPin = null;
+      if (notesDb) {
+        notesDb.close();
+        notesDb = null;
+      }
+      return;
+    }
+    throw error;
+  }
 }
 
 function assertNoteId(id: string) {
@@ -168,10 +206,15 @@ function backupPath(prefix: string, id: string) {
 }
 
 function publicSettings(settings: StoredSettings): AppSettings {
+  const storageEncrypted = isStorageEncryptionEnabled(settings);
   return {
     hotkey: settings.hotkey,
     startHidden: settings.startHidden,
     lockOnHide: settings.lockOnHide,
+    backupHistoryEnabled: settings.backupHistoryEnabled,
+    backupHistoryLimit: settings.backupHistoryLimit,
+    storageEncrypted,
+    storageUnlocked: !storageEncrypted || Boolean(activePrivacyPin),
     launchAtLogin: settings.launchAtLogin,
     theme: settings.theme,
     fontFamily: settings.fontFamily,
@@ -180,6 +223,10 @@ function publicSettings(settings: StoredSettings): AppSettings {
     lineHeight: settings.lineHeight,
     hasPrivacyPin: Boolean(settings.privacyPinHash && settings.privacyPinSalt)
   };
+}
+
+function isStorageEncryptionEnabled(settings: StoredSettings) {
+  return Boolean(settings.storageEncrypted && settings.privacyPinHash && settings.privacyPinSalt);
 }
 
 function hashPin(pin: string, salt: string) {
@@ -196,6 +243,87 @@ function verifyPin(settings: StoredSettings, pin: string) {
   const candidateHash = expected.length === 32 ? hashPin(pin, settings.privacyPinSalt) : hashPinScrypt(pin, settings.privacyPinSalt);
   const actual = Buffer.from(candidateHash, "hex");
   return expected.length === actual.length && timingSafeEqual(expected, actual);
+}
+
+function sanitizeStoredSettings(raw: Partial<StoredSettings>): StoredSettings {
+  return {
+    hotkey: coerceString(raw.hotkey, DEFAULT_HOTKEY, 120).trim() || DEFAULT_HOTKEY,
+    startHidden: Boolean(raw.startHidden),
+    lockOnHide: Boolean(raw.lockOnHide),
+    backupHistoryEnabled: raw.backupHistoryEnabled !== false,
+    backupHistoryLimit: Math.min(
+      Math.max(Number(raw.backupHistoryLimit) || DEFAULT_BACKUP_HISTORY_LIMIT, 1),
+      MAX_BACKUP_HISTORY_LIMIT
+    ),
+    storageEncrypted: Boolean(raw.storageEncrypted),
+    launchAtLogin: Boolean(raw.launchAtLogin),
+    theme: raw.theme === "dark" ? "dark" : "light",
+    fontFamily: coerceString(raw.fontFamily, "", 120),
+    fontSize: Math.min(Math.max(Number(raw.fontSize) || 16, 13), 24),
+    lineWidth: Math.min(Math.max(Number(raw.lineWidth) || 880, 640), 1200),
+    lineHeight: Math.min(Math.max(Number(raw.lineHeight) || 1.72, 1.35), 2.2),
+    privacyPinHash: typeof raw.privacyPinHash === "string" ? raw.privacyPinHash : null,
+    privacyPinSalt: typeof raw.privacyPinSalt === "string" ? raw.privacyPinSalt : null
+  };
+}
+
+function deriveStorageKey(pin: string, salt: string) {
+  return scryptSync(pin, `${salt}:storage`, 32);
+}
+
+function parseEncryptedEnvelope(raw: Buffer): EncryptedEnvelope | null {
+  const text = raw.toString("utf8").trim();
+  if (!text.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(text) as Partial<EncryptedEnvelope>;
+    if (
+      parsed.app !== "suiji" ||
+      parsed.kind !== "encrypted" ||
+      parsed.version !== 1 ||
+      typeof parsed.salt !== "string" ||
+      typeof parsed.iv !== "string" ||
+      typeof parsed.tag !== "string" ||
+      typeof parsed.data !== "string"
+    ) {
+      return null;
+    }
+    return parsed as EncryptedEnvelope;
+  } catch {
+    return null;
+  }
+}
+
+function encodeStoredBytes(content: Uint8Array, pin: string | null, salt: string | null, encrypt: boolean) {
+  if (!encrypt) return Buffer.from(content);
+  if (!pin || !salt) {
+    throw new Error("Storage key unavailable");
+  }
+  const iv = randomBytes(12);
+  const key = deriveStorageKey(pin, salt);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([cipher.update(Buffer.from(content)), cipher.final()]);
+  const envelope: EncryptedEnvelope = {
+    app: "suiji",
+    kind: "encrypted",
+    version: 1,
+    salt,
+    iv: iv.toString("base64"),
+    tag: cipher.getAuthTag().toString("base64"),
+    data: encrypted.toString("base64")
+  };
+  return Buffer.from(JSON.stringify(envelope), "utf8");
+}
+
+function decodeStoredBytes(content: Buffer, pin: string | null) {
+  const envelope = parseEncryptedEnvelope(content);
+  if (!envelope) return content;
+  if (!pin) {
+    throw new Error("Storage locked");
+  }
+  const key = deriveStorageKey(pin, envelope.salt);
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(envelope.iv, "base64"));
+  decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
+  return Buffer.concat([decipher.update(Buffer.from(envelope.data, "base64")), decipher.final()]);
 }
 
 async function atomicWriteFile(filePath: string, content: string) {
@@ -220,16 +348,49 @@ async function atomicWriteBytes(filePath: string, content: Uint8Array) {
   }
 }
 
+async function readStoredBytesFile(filePath: string) {
+  const raw = await fs.readFile(filePath);
+  return decodeStoredBytes(raw, activePrivacyPin);
+}
+
+async function readStoredTextFile(filePath: string) {
+  return (await readStoredBytesFile(filePath)).toString("utf8");
+}
+
+async function writeStoredBytesFile(filePath: string, content: Uint8Array, settings: StoredSettings) {
+  const payload = encodeStoredBytes(content, activePrivacyPin, settings.privacyPinSalt, isStorageEncryptionEnabled(settings));
+  await atomicWriteBytes(filePath, payload);
+}
+
+async function writeStoredJsonFile(filePath: string, value: unknown, settings: StoredSettings) {
+  await writeStoredBytesFile(filePath, Buffer.from(JSON.stringify(value, null, 2), "utf8"), settings);
+}
+
+async function ensureNotesDatabaseReady() {
+  const settings = await readStoredSettings();
+  if (isStorageEncryptionEnabled(settings) && !activePrivacyPin) {
+    throw new Error("Storage locked");
+  }
+  if (!notesDb) {
+    await initializeNotesDatabase(settings);
+  }
+  return settings;
+}
+
 async function backupExistingNote(id: string, prefix = "note") {
+  const settings = await readStoredSettings();
+  if (!settings.backupHistoryEnabled) return;
   try {
     const note = await readNote(id);
-    await atomicWriteFile(backupPath(prefix, id), JSON.stringify(note, null, 2));
+    await writeStoredJsonFile(backupPath(prefix, id), note, settings);
   } catch {
     // No backup is needed when the note does not exist yet.
   }
 }
 
 async function backupExistingNoteIfStale(id: string, prefix = "note", minIntervalMs = EDIT_BACKUP_INTERVAL_MS) {
+  const settings = await readStoredSettings();
+  if (!settings.backupHistoryEnabled) return;
   try {
     const entries = await fs.readdir(backupsDir, { withFileTypes: true });
     const hasRecentBackup = await Promise.all(
@@ -248,7 +409,9 @@ async function backupExistingNoteIfStale(id: string, prefix = "note", minInterva
   await backupExistingNote(id, prefix);
 }
 
-async function pruneBackups(limit = 80) {
+async function pruneBackups() {
+  const settings = await readStoredSettings();
+  const limit = settings.backupHistoryEnabled ? settings.backupHistoryLimit : 0;
   try {
     const entries = await fs.readdir(backupsDir, { withFileTypes: true });
     const files = await Promise.all(
@@ -494,6 +657,12 @@ function sanitizeSettingsPayload(raw: unknown): SettingsUpdatePayload {
     hotkey: coerceString(payload.hotkey, DEFAULT_HOTKEY, 120).trim() || DEFAULT_HOTKEY,
     startHidden: Boolean(payload.startHidden),
     lockOnHide: Boolean(payload.lockOnHide),
+    backupHistoryEnabled: payload.backupHistoryEnabled !== false,
+    backupHistoryLimit: Math.min(
+      Math.max(Number(payload.backupHistoryLimit) || DEFAULT_BACKUP_HISTORY_LIMIT, 1),
+      MAX_BACKUP_HISTORY_LIMIT
+    ),
+    encryptLocalData: Boolean(payload.encryptLocalData),
     launchAtLogin: Boolean(payload.launchAtLogin),
     theme: payload.theme === "dark" ? "dark" : "light",
     fontFamily: coerceString(payload.fontFamily, "", 120),
@@ -1159,10 +1328,12 @@ async function loadSqliteRuntime() {
 }
 
 function dbExec(sql: string, bind: unknown[] = []) {
+  if (!notesDb) throw new Error("Storage locked");
   notesDb.exec({ sql, bind });
 }
 
 function dbRows<T>(sql: string, bind: unknown[] = []) {
+  if (!notesDb) throw new Error("Storage locked");
   const rows: T[] = [];
   notesDb.exec({
     sql,
@@ -1188,7 +1359,7 @@ function dbValue<T>(sql: string, bind: unknown[] = []) {
   return value;
 }
 
-async function persistNotesDatabase() {
+async function persistNotesDatabase(settingsOverride?: StoredSettings) {
   if (!sqliteRuntime || !notesDb) return;
   if (notesDbFlushTimer) {
     clearTimeout(notesDbFlushTimer);
@@ -1199,7 +1370,8 @@ async function persistNotesDatabase() {
     if (!notesDbDirty || !sqliteRuntime || !notesDb) return;
     notesDbDirty = false;
     const bytes = sqliteRuntime.capi.sqlite3_js_db_export(notesDb);
-    await atomicWriteBytes(databasePath, bytes);
+    const settings = settingsOverride ?? (await readStoredSettings());
+    await writeStoredBytesFile(databasePath, bytes, settings);
   });
   notesDbPersistQueue = task.then(
     () => undefined,
@@ -1317,7 +1489,8 @@ async function migrateJsonNotesToDatabaseIfNeeded() {
   await persistNotesDatabase();
 }
 
-async function initializeNotesDatabase() {
+async function initializeNotesDatabase(settings?: StoredSettings) {
+  const effectiveSettings = settings ?? (await readStoredSettings());
   if (notesDb) {
     notesDb.close();
     notesDb = null;
@@ -1325,7 +1498,7 @@ async function initializeNotesDatabase() {
 
   const sqlite3 = await loadSqliteRuntime();
   try {
-    const bytes = await fs.readFile(databasePath);
+    const bytes = await readStoredBytesFile(databasePath);
     sqlite3.capi.sqlite3_js_posix_create_file(databaseVirtualPath, bytes);
   } catch {
     // A missing database file means this is the first launch for the data directory.
@@ -1336,20 +1509,24 @@ async function initializeNotesDatabase() {
   ensureNotesSchema();
   await migrateJsonNotesToDatabaseIfNeeded();
   notesDbDirty = true;
-  await persistNotesDatabase();
+  await persistNotesDatabase(effectiveSettings);
 }
 
 async function writeNoteToDatabase(note: NoteRecord, persist = true) {
+  await ensureNotesDatabaseReady();
   upsertNoteInDatabase(note);
   if (persist) scheduleNotesDatabasePersist();
 }
 
 async function readStoredSettings(): Promise<StoredSettings> {
+  if (settingsCache) return settingsCache;
   try {
     const raw = await fs.readFile(settingsPath, "utf8");
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    settingsCache = sanitizeStoredSettings(JSON.parse(raw) as Partial<StoredSettings>);
+    return settingsCache;
   } catch {
     await writeStoredSettings(DEFAULT_SETTINGS);
+    settingsCache = DEFAULT_SETTINGS;
     return DEFAULT_SETTINGS;
   }
 }
@@ -1359,16 +1536,68 @@ async function readSettings(): Promise<AppSettings> {
 }
 
 async function writeStoredSettings(settings: StoredSettings) {
-  await atomicWriteFile(settingsPath, JSON.stringify(settings, null, 2));
+  settingsCache = sanitizeStoredSettings(settings);
+  await atomicWriteFile(settingsPath, JSON.stringify(settingsCache, null, 2));
+}
+
+async function rewriteLocalBackupFiles(currentPin: string | null, nextSettings: StoredSettings, nextPin: string | null) {
+  const entries = await fs.readdir(backupsDir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    const filePath = path.join(backupsDir, entry.name);
+    const raw = decodeStoredBytes(await fs.readFile(filePath), currentPin).toString("utf8");
+    const pinBeforeWrite = activePrivacyPin;
+    activePrivacyPin = nextPin;
+    try {
+      await writeStoredBytesFile(filePath, Buffer.from(raw, "utf8"), nextSettings);
+    } finally {
+      activePrivacyPin = pinBeforeWrite;
+    }
+  }
+}
+
+async function reconfigureLocalStorage(current: StoredSettings, next: StoredSettings, nextPin: string | null) {
+  const currentPin = activePrivacyPin;
+  if (!notesDb) {
+    const pinBeforeReload = activePrivacyPin;
+    activePrivacyPin = nextPin;
+    try {
+      if (!isStorageEncryptionEnabled(next) || nextPin) {
+        await initializeNotesDatabase(next);
+      }
+    } finally {
+      activePrivacyPin = pinBeforeReload;
+    }
+    return;
+  }
+
+  const pinBeforeRewrite = activePrivacyPin;
+  activePrivacyPin = nextPin;
+  try {
+    notesDbDirty = true;
+    await persistNotesDatabase(next);
+    if (!next.backupHistoryEnabled) {
+      await pruneBackups();
+    } else {
+      await rewriteLocalBackupFiles(currentPin, next, nextPin);
+      await pruneBackups();
+    }
+  } finally {
+    activePrivacyPin = pinBeforeRewrite;
+  }
 }
 
 async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<AppSettings> {
   const current = await readStoredSettings();
+  const nextPin = payload.clearPrivacyPin ? null : typeof payload.privacyPin === "string" && payload.privacyPin.trim() ? payload.privacyPin.trim().slice(0, MAX_PIN_LENGTH) : activePrivacyPin;
   const next: StoredSettings = {
     ...current,
     hotkey: payload.hotkey || DEFAULT_HOTKEY,
     startHidden: Boolean(payload.startHidden),
     lockOnHide: Boolean(payload.lockOnHide),
+    backupHistoryEnabled: Boolean(payload.backupHistoryEnabled),
+    backupHistoryLimit: payload.backupHistoryLimit,
+    storageEncrypted: Boolean(payload.encryptLocalData),
     launchAtLogin: Boolean(payload.launchAtLogin),
     theme: payload.theme === "dark" ? "dark" : "light",
     fontFamily: payload.fontFamily,
@@ -1387,7 +1616,29 @@ async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<App
     next.privacyPinHash = hashPinScrypt(pin, salt);
   }
 
+  if (next.storageEncrypted && !(next.privacyPinHash && next.privacyPinSalt && nextPin)) {
+    throw new Error("开启本地加密前需要先输入隐私密码");
+  }
+
+  if (!next.privacyPinHash || !next.privacyPinSalt) {
+    next.storageEncrypted = false;
+  }
+
+  const storageChanged =
+    current.backupHistoryEnabled !== next.backupHistoryEnabled ||
+    current.backupHistoryLimit !== next.backupHistoryLimit ||
+    isStorageEncryptionEnabled(current) !== isStorageEncryptionEnabled(next) ||
+    current.privacyPinHash !== next.privacyPinHash ||
+    current.privacyPinSalt !== next.privacyPinSalt;
+  if (storageChanged) {
+    await reconfigureLocalStorage(current, next, nextPin);
+  }
+  activePrivacyPin = next.storageEncrypted || next.privacyPinHash ? nextPin : null;
+
   await writeStoredSettings(next);
+  if (!next.backupHistoryEnabled) {
+    await pruneBackups();
+  }
   app.setLoginItemSettings({
     openAtLogin: next.launchAtLogin,
     openAsHidden: next.startHidden
@@ -1396,6 +1647,7 @@ async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<App
 }
 
 async function listNotes(): Promise<NoteRecord[]> {
+  await ensureNotesDatabaseReady();
   const notes = dbRows<NoteDbRow>(
     `SELECT
       id, title, excerpt, tags_json, folder, favorite_at, archived_at, trashed_at,
@@ -1415,6 +1667,11 @@ function buildFtsQuery(query: string) {
 }
 
 async function searchNoteIds(query: string): Promise<string[]> {
+  try {
+    await ensureNotesDatabaseReady();
+  } catch {
+    return [];
+  }
   const ftsQuery = buildFtsQuery(coerceString(query, "", 500));
   if (!ftsQuery) return [];
   try {
@@ -1429,6 +1686,7 @@ async function searchNoteIds(query: string): Promise<string[]> {
 
 async function exportAllNotesBackup() {
   const notes = await listNotes();
+  const settings = await readStoredSettings();
   const backup: NotesBackup = {
     app: "suiji",
     version: app.getVersion(),
@@ -1454,7 +1712,7 @@ async function exportAllNotesBackup() {
       });
 
   if (result.canceled || !result.filePath) return null;
-  await atomicWriteFile(result.filePath, JSON.stringify(backup, null, 2));
+  await writeStoredJsonFile(result.filePath, backup, settings);
   return result.filePath;
 }
 
@@ -1493,7 +1751,7 @@ async function restoreNotesBackup(): Promise<RestoreResult | null> {
     : await dialog.showMessageBox(warningOptions);
   if (warning.response !== 0) return null;
 
-  const raw = await fs.readFile(result.filePaths[0], "utf8");
+  const raw = await readStoredTextFile(result.filePaths[0]);
   const backupNotes = parseBackupNotes(JSON.parse(raw));
   let imported = 0;
   let skipped = 0;
@@ -1529,6 +1787,7 @@ function sortNotes(notes: NoteRecord[]) {
 }
 
 async function saveNote(rawNote: NoteRecord): Promise<NoteRecord> {
+  await ensureNotesDatabaseReady();
   const note = sanitizeNotePayload(rawNote);
   const plainText = note.plainText.trim();
   const normalized = normalizeNote({
@@ -1545,6 +1804,7 @@ async function saveNote(rawNote: NoteRecord): Promise<NoteRecord> {
 }
 
 async function readNote(id: string): Promise<NoteRecord> {
+  await ensureNotesDatabaseReady();
   assertNoteId(id);
   const row = dbRows<NoteDbRow>(
     `SELECT
@@ -1595,6 +1855,7 @@ async function toggleArchiveNote(id: string): Promise<NoteRecord> {
 }
 
 async function createNote(): Promise<NoteRecord> {
+  await ensureNotesDatabaseReady();
   const now = new Date().toISOString();
   const note = normalizeNote({
     id: randomUUID(),
@@ -1608,6 +1869,7 @@ async function createNote(): Promise<NoteRecord> {
 }
 
 async function createNoteFromContent(title: string, plainText: string, content: NoteRecord["content"], html = "") {
+  await ensureNotesDatabaseReady();
   const now = new Date().toISOString();
   const note = normalizeNote({
     id: randomUUID(),
@@ -1768,7 +2030,7 @@ async function restoreNoteBackup(id: string, fileName: string): Promise<NoteReco
     throw new Error("Invalid backup file");
   }
 
-  const raw = await fs.readFile(path.join(backupsDir, safeName), "utf8");
+  const raw = await readStoredTextFile(path.join(backupsDir, safeName));
   const note = sanitizeNotePayload(JSON.parse(raw));
   if (note.id !== id) {
     throw new Error("Backup note id mismatch");
@@ -2067,7 +2329,7 @@ function createApplicationMenu() {
               title: "关于随记",
               message: "随记",
               detail:
-                `版本：${app.getVersion()}\n版权：Copyright (c) 2026 Suiji. All rights reserved.\n\n随记是快捷呼出的本地自动保存富文本记录工具。笔记默认保存在本机用户数据目录，导出文件为明文，请自行确认保存位置安全。`
+                `版本：${app.getVersion()}\n版权：Copyright (c) 2026 Suiji. All rights reserved.\n\n随记是快捷呼出的本地自动保存富文本记录工具。可选启用本地加密来保护数据库、历史版本和整库备份；普通导出文件仍为明文，请自行确认保存位置安全。`
             } as const;
             if (mainWindow) {
               void dialog.showMessageBox(mainWindow, options);
@@ -2242,9 +2504,17 @@ function registerIpc() {
     registerHotkey(settings.hotkey);
     return ok;
   });
-  ipcMain.handle("privacy:verify-pin", async (_event, pin: string) =>
-    verifyPin(await readStoredSettings(), coerceString(pin, "", MAX_PIN_LENGTH))
-  );
+  ipcMain.handle("privacy:verify-pin", async (_event, pin: string) => {
+    const settings = await readStoredSettings();
+    const candidate = coerceString(pin, "", MAX_PIN_LENGTH);
+    const ok = verifyPin(settings, candidate);
+    if (!ok) return false;
+    activePrivacyPin = candidate;
+    if (isStorageEncryptionEnabled(settings) && !notesDb) {
+      await initializeNotesDatabase(settings);
+    }
+    return true;
+  });
   ipcMain.handle("shell:open-external", async (_event, value: string) => {
     const url = validateExternalUrl(coerceString(value, "", 2048));
     if (!url) return false;

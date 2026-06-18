@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.9.0 - 2026-06-18
+
+- Added switches for local history retention so automatic note-version backups can be disabled entirely or capped to a smaller count.
+- Added PIN-based local encryption for `suiji.db`, note history files in `backups/`, and full-library backup exports, with startup lock handling for encrypted storage.
+
 ## 0.8.10 - 2026-06-18
 
 - Kept the editor `+` insert button anchored in its original position and changed only the menu to float out from the button's right side so it no longer gets clipped by the left edge.

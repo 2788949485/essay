@@ -104,6 +104,10 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   startHidden: false,
   lockOnHide: true,
   hasPrivacyPin: false,
+  backupHistoryEnabled: true,
+  backupHistoryLimit: 80,
+  storageEncrypted: false,
+  storageUnlocked: true,
   launchAtLogin: false,
   theme: "light",
   fontFamily: "",
@@ -674,6 +678,9 @@ function settingsPayload(settings: AppSettings, hotkey: string) {
     hotkey: hotkey.trim() || "CommandOrControl+Alt+J",
     startHidden: settings.startHidden,
     lockOnHide: settings.lockOnHide,
+    backupHistoryEnabled: settings.backupHistoryEnabled,
+    backupHistoryLimit: settings.backupHistoryLimit,
+    encryptLocalData: settings.storageEncrypted,
     launchAtLogin: settings.launchAtLogin,
     theme: settings.theme,
     fontFamily: settings.fontFamily,
@@ -999,7 +1006,17 @@ export default function App() {
   }
 
   const loadNotes = useCallback(async () => {
-    const [loadedNotes, loadedSettings] = await Promise.all([window.suiji.listNotes(), window.suiji.getSettings()]);
+    const loadedSettings = await window.suiji.getSettings();
+    setSettings(loadedSettings);
+    setHotkeyDraft(loadedSettings.hotkey);
+    if (loadedSettings.storageEncrypted && !loadedSettings.storageUnlocked) {
+      setNotes([]);
+      setActiveId("");
+      setPrivacyLocked(true);
+      return;
+    }
+
+    const loadedNotes = await window.suiji.listNotes();
     let nextNotes = loadedNotes;
     if (nextNotes.length === 0) {
       const created = await window.suiji.createNote();
@@ -1007,8 +1024,7 @@ export default function App() {
     }
     setNotes(nextNotes);
     setActiveId((current) => current || nextNotes[0]?.id || "");
-    setSettings(loadedSettings);
-    setHotkeyDraft(loadedSettings.hotkey);
+    setPrivacyLocked(false);
   }, []);
 
   useEffect(() => {
@@ -1638,17 +1654,25 @@ export default function App() {
   }
 
   async function handleSettingsSave() {
-    const next = await window.suiji.updateSettings({
-      ...settingsPayload(settings ?? DEFAULT_APP_SETTINGS, hotkeyDraft),
-      privacyPin: privacyPinDraft.trim() || undefined,
-      clearPrivacyPin
-    });
-    setSettings(next);
-    setHotkeyDraft(next.hotkey);
-    setHotkeyStatus("");
-    setPrivacyPinDraft("");
-    setClearPrivacyPin(false);
-    setSettingsOpen(false);
+    try {
+      const next = await window.suiji.updateSettings({
+        ...settingsPayload(settings ?? DEFAULT_APP_SETTINGS, hotkeyDraft),
+        privacyPin: privacyPinDraft.trim() || undefined,
+        clearPrivacyPin
+      });
+      setSettings(next);
+      setHotkeyDraft(next.hotkey);
+      setHotkeyStatus("");
+      setPrivacyPinDraft("");
+      setClearPrivacyPin(false);
+      setDataActionStatus("");
+      setSettingsOpen(false);
+      if (next.storageEncrypted && !next.storageUnlocked) {
+        setPrivacyLocked(true);
+      }
+    } catch (error) {
+      setDataActionStatus(error instanceof Error ? error.message : "保存设置失败");
+    }
   }
 
   async function handleBackupAllNotes() {
@@ -1702,15 +1726,26 @@ export default function App() {
       return;
     }
 
+    const loadedSettings = await window.suiji.getSettings();
+    setSettings(loadedSettings);
+    setHotkeyDraft(loadedSettings.hotkey);
+    if (loadedSettings.storageEncrypted && !loadedSettings.storageUnlocked) {
+      setNotes([]);
+      setActiveId("");
+      setPrivacyLocked(true);
+      setViewMode("active");
+      setSelectedFolder("");
+      setSelectedTag("");
+      setDataActionStatus(`数据目录已切换：${dataPath}`);
+      return;
+    }
+
     const loaded = await reloadNotes("active");
     if (loaded.length === 0) {
       const created = await window.suiji.createNote();
       setNotes([created]);
       setActiveId(created.id);
     }
-    const loadedSettings = await window.suiji.getSettings();
-    setSettings(loadedSettings);
-    setHotkeyDraft(loadedSettings.hotkey);
     setViewMode("active");
     setSelectedFolder("");
     setSelectedTag("");
@@ -1719,6 +1754,12 @@ export default function App() {
 
   async function handleOpenHistory() {
     if (!activeNote) return;
+    if (!settings?.backupHistoryEnabled) {
+      setHistoryStatus("历史版本已关闭");
+      setHistoryEntries([]);
+      setHistoryOpen(true);
+      return;
+    }
     setHistoryStatus("正在读取历史版本...");
     setHistoryOpen(true);
     const entries = await window.suiji.listNoteBackups(activeNote.id);
@@ -1766,6 +1807,7 @@ export default function App() {
       setUnlockError("密码不正确");
       return;
     }
+    await loadNotes();
     setPrivacyLocked(false);
     setUnlockPin("");
     setUnlockError("");
@@ -2958,6 +3000,39 @@ export default function App() {
             <label className="checkbox-row">
               <input
                 type="checkbox"
+                checked={settings?.backupHistoryEnabled ?? true}
+                onChange={(event) =>
+                  setSettings((current) =>
+                    current ? { ...current, backupHistoryEnabled: event.target.checked } : current
+                  )
+                }
+              />
+              <span>保留自动历史版本</span>
+            </label>
+            <label>
+              <span>历史版本最多保留份数</span>
+              <input
+                type="number"
+                min={1}
+                max={200}
+                value={settings?.backupHistoryLimit ?? 80}
+                disabled={!(settings?.backupHistoryEnabled ?? true)}
+                onChange={(event) =>
+                  setSettings((current) =>
+                    current
+                      ? {
+                          ...current,
+                          backupHistoryLimit: Math.min(Math.max(Number(event.target.value) || 1, 1), 200)
+                        }
+                      : current
+                  )
+                }
+              />
+              <small className="setting-hint">关闭后不再生成本地历史副本，并清空已有版本记录。</small>
+            </label>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
                 checked={settings?.theme === "dark"}
                 onChange={(event) =>
                   setSettings((current) =>
@@ -2966,6 +3041,19 @@ export default function App() {
                 }
               />
               <span>深色模式</span>
+            </label>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={settings?.storageEncrypted ?? false}
+                disabled={!settings?.hasPrivacyPin && !privacyPinDraft.trim()}
+                onChange={(event) =>
+                  setSettings((current) =>
+                    current ? { ...current, storageEncrypted: event.target.checked } : current
+                  )
+                }
+              />
+              <span>使用隐私密码加密本地数据库和历史备份</span>
             </label>
             <label>
               <span>{settings?.hasPrivacyPin ? "更换隐私密码" : "设置隐私密码"}</span>
@@ -2976,9 +3064,12 @@ export default function App() {
                   setPrivacyPinDraft(event.target.value);
                   setClearPrivacyPin(false);
                 }}
-                placeholder={settings?.hasPrivacyPin ? "留空则不修改" : "可选，留空则点击解锁"}
+                placeholder={settings?.hasPrivacyPin ? "留空则不修改；开启加密时可在此重新输入" : "可选，开启加密前需要先输入"}
               />
             </label>
+            <small className="setting-hint">
+              开启后，`suiji.db`、历史版本和整库备份会改为 PIN 加密；普通导出的 `md/html/txt/pdf/json` 仍然是明文。
+            </small>
             {settings?.hasPrivacyPin ? (
               <label className="checkbox-row">
                 <input
@@ -2987,6 +3078,9 @@ export default function App() {
                   onChange={(event) => {
                     setClearPrivacyPin(event.target.checked);
                     if (event.target.checked) setPrivacyPinDraft("");
+                    setSettings((current) =>
+                      current ? { ...current, storageEncrypted: event.target.checked ? false : current.storageEncrypted } : current
+                    );
                   }}
                 />
                 <span>移除隐私密码</span>
