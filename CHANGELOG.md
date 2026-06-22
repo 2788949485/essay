@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.10 - 2026-06-22
+
+- Fixed a persistence gap where newly created notes could still be only in the in-memory database for a short window; new notes and imported notes are now flushed to `suiji.db` immediately so closing the portable app or rebuilding right after creation no longer drops them.
+
+## 0.9.9 - 2026-06-22
+
+- Increased the note-list excerpt area to two visible lines so the正文摘要 under each title no longer gets clipped into an undersized single-line slot.
+
 ## 0.9.8 - 2026-06-22
 
 - Refined the in-editor find panel into a clearer floating layout with grouped search, replace, navigation, and close actions so the popup reads more like the rest of the app's layered controls.

@@ -1250,7 +1250,8 @@ async function createNote(): Promise<NoteRecord> {
     createdAt: now,
     updatedAt: now
   });
-  await writeNoteToDatabase(note);
+  await writeNoteToDatabase(note, false);
+  await persistNotesDatabase();
   return note;
 }
 
@@ -1267,7 +1268,8 @@ async function createNoteFromContent(title: string, plainText: string, content: 
     createdAt: now,
     updatedAt: now
   });
-  await writeNoteToDatabase(note);
+  await writeNoteToDatabase(note, false);
+  await persistNotesDatabase();
   return note;
 }
 

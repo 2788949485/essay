@@ -971,6 +971,7 @@ input::placeholder {
 
 .note-excerpt {
   display: -webkit-box;
+  min-height: calc(12px * 1.45 * 2);
   overflow: hidden;
   color: var(--muted-text);
   font-size: 12px;
@@ -978,7 +979,7 @@ input::placeholder {
   overflow-wrap: anywhere;
   word-break: break-word;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 1;
+  -webkit-line-clamp: 2;
 }
 
 .note-time {
