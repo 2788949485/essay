@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.13 - 2026-06-22
+
+- Added a per-note encrypted-compatible shadow file alongside SQLite saves, and startup reconciliation from `notes/*.json`, so newly created or edited notes can be recovered even if the SQLite export path is interrupted.
+- Updated local encryption reconfiguration to rewrite the new per-note shadow files as well as backups.
+- Fixed crowded note-list panels by preventing note cards from shrinking in the scroll container and allowing compact titles to wrap without being squeezed by action buttons.
+
+## 0.9.12 - 2026-06-22
+
+- Fixed the real persistence regression in the immediate-save path: note writes now always mark the SQLite session dirty before either queued or immediate flush, so newly created notes and edits to existing notes are actually written into `suiji.db` instead of only appearing in the current session.
+- Improved compact-sidebar note cards by letting titles wrap to two lines and reserving space for the action buttons, reducing title truncation when the record list gets crowded in the small panel layout.
+
+## 0.9.11 - 2026-06-22
+
+- Tightened auto-save semantics so `notes:save` now flushes the edited note to `suiji.db` before reporting success; the “已保存” state now means the latest edit is already on disk instead of only living in the in-memory SQLite session.
+
 ## 0.9.10 - 2026-06-22
 
 - Fixed a persistence gap where newly created notes could still be only in the in-memory database for a short window; new notes and imported notes are now flushed to `suiji.db` immediately so closing the portable app or rebuilding right after creation no longer drops them.

@@ -249,6 +249,11 @@ async function writeStoredJsonFile(filePath: string, value: unknown, settings: S
   await writeStoredBytesFile(filePath, Buffer.from(JSON.stringify(value, null, 2), "utf8"), settings);
 }
 
+async function writeNoteShadowFile(note: NoteRecord, settingsOverride?: StoredSettings) {
+  const settings = settingsOverride ?? (await readStoredSettings());
+  await writeStoredJsonFile(notePath(note.id), note, settings);
+}
+
 async function writeEncryptedBackupExport(filePath: string, value: unknown, pin: string) {
   const payload = encodeStoredBytes(
     Buffer.from(JSON.stringify(value, null, 2), "utf8"),
@@ -769,23 +774,28 @@ function upsertNoteInDatabase(note: NoteRecord) {
   ]);
 }
 
-async function migrateJsonNotesToDatabaseIfNeeded() {
-  const count = dbValue<number>("SELECT COUNT(*) FROM notes") ?? 0;
-  if (count > 0) return;
-
+async function syncJsonNotesToDatabase() {
   const files = await fs.readdir(notesDir).catch(() => []);
   const noteFiles = files.filter((file) => file.endsWith(".json") && NOTE_ID_PATTERN.test(path.basename(file, ".json")));
   if (noteFiles.length === 0) return;
 
   const corruptDir = path.join(notesDir, "corrupt");
+  const existingRows = dbRows<{ id: string; updated_at: string }>("SELECT id, updated_at FROM notes");
+  const existingUpdatedAt = new Map(existingRows.map((row) => [row.id, row.updated_at]));
+  let changed = false;
+
   dbExec("BEGIN");
   try {
     for (const file of noteFiles) {
       const filePath = path.join(notesDir, file);
       try {
-        const raw = await fs.readFile(filePath, "utf8");
+        const raw = await readStoredTextFile(filePath);
         const note = normalizeNote(JSON.parse(raw));
-        upsertNoteInDatabase(note);
+        const existing = existingUpdatedAt.get(note.id);
+        if (!existing || Date.parse(note.updatedAt) > Date.parse(existing)) {
+          upsertNoteInDatabase(note);
+          changed = true;
+        }
       } catch {
         await fs.mkdir(corruptDir, { recursive: true });
         await fs.rename(filePath, path.join(corruptDir, `${Date.now()}-${file}`)).catch(() => undefined);
@@ -796,8 +806,10 @@ async function migrateJsonNotesToDatabaseIfNeeded() {
     dbExec("ROLLBACK");
     throw error;
   }
-  notesDbDirty = true;
-  await persistNotesDatabase();
+  if (changed) {
+    notesDbDirty = true;
+    await persistNotesDatabase();
+  }
 }
 
 async function initializeNotesDatabase(settings?: StoredSettings) {
@@ -818,7 +830,7 @@ async function initializeNotesDatabase(settings?: StoredSettings) {
   notesDb = new sqlite3.oo1.DB(databaseVirtualPath, "c");
   sqlite3.capi.sqlite3_trace_v2(notesDb.pointer, 0, 0, 0);
   ensureNotesSchema();
-  await migrateJsonNotesToDatabaseIfNeeded();
+  await syncJsonNotesToDatabase();
   notesDbDirty = true;
   await persistNotesDatabase(effectiveSettings);
 }
@@ -826,6 +838,8 @@ async function initializeNotesDatabase(settings?: StoredSettings) {
 async function writeNoteToDatabase(note: NoteRecord, persist = true) {
   await ensureNotesDatabaseReady();
   upsertNoteInDatabase(note);
+  notesDbDirty = true;
+  await writeNoteShadowFile(note);
   if (persist) scheduleNotesDatabasePersist();
 }
 
@@ -851,11 +865,11 @@ async function writeStoredSettings(settings: StoredSettings) {
   await atomicWriteFile(settingsPath, JSON.stringify(settingsCache, null, 2));
 }
 
-async function rewriteLocalBackupFiles(currentPin: string | null, nextSettings: StoredSettings, nextPin: string | null) {
-  const entries = await fs.readdir(backupsDir, { withFileTypes: true }).catch(() => []);
+async function rewriteStoredJsonFiles(directory: string, currentPin: string | null, nextSettings: StoredSettings, nextPin: string | null) {
+  const entries = await fs.readdir(directory, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    const filePath = path.join(backupsDir, entry.name);
+    const filePath = path.join(directory, entry.name);
     const raw = decodeStoredBytes(await fs.readFile(filePath), currentPin).toString("utf8");
     const pinBeforeWrite = activePrivacyPin;
     activePrivacyPin = nextPin;
@@ -887,10 +901,11 @@ async function reconfigureLocalStorage(current: StoredSettings, next: StoredSett
   try {
     notesDbDirty = true;
     await persistNotesDatabase(next);
+    await rewriteStoredJsonFiles(notesDir, currentPin, next, nextPin);
     if (!next.backupHistoryEnabled) {
       await pruneBackups();
     } else {
-      await rewriteLocalBackupFiles(currentPin, next, nextPin);
+      await rewriteStoredJsonFiles(backupsDir, currentPin, next, nextPin);
       await pruneBackups();
     }
   } finally {
@@ -1184,7 +1199,8 @@ async function saveNote(rawNote: NoteRecord): Promise<NoteRecord> {
   });
 
   await backupExistingNoteIfStale(normalized.id);
-  await writeNoteToDatabase(normalized);
+  await writeNoteToDatabase(normalized, false);
+  await persistNotesDatabase();
   void pruneBackups();
   return normalized;
 }
@@ -1431,6 +1447,7 @@ async function purgeNote(id: string) {
   await backupExistingNote(id, "purged");
   dbExec("DELETE FROM notes_fts WHERE id = ?", [id]);
   dbExec("DELETE FROM notes WHERE id = ?", [id]);
+  await fs.rm(notePath(id), { force: true }).catch(() => undefined);
   notesDbDirty = true;
   await persistNotesDatabase();
   void pruneBackups();

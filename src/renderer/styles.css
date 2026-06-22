@@ -778,6 +778,7 @@ input::placeholder {
   position: relative;
   display: grid;
   width: 100%;
+  flex: 0 0 auto;
   min-height: 0;
   grid-template-rows: auto auto auto auto;
   gap: 4px;
@@ -3566,6 +3567,35 @@ input[type="range"] {
     min-height: clamp(340px, calc(100dvh - 232px), 720px);
     border-radius: 26px;
     padding: 54px 28px 92px;
+  }
+
+  .note-item {
+    gap: 6px;
+  }
+
+  .note-item-header {
+    position: relative;
+    display: block;
+    min-height: 38px;
+  }
+
+  .note-title {
+    align-items: flex-start;
+    padding-right: 116px;
+  }
+
+  .note-actions {
+    position: absolute;
+    top: -2px;
+    right: 0;
+  }
+
+  .note-title-text {
+    display: -webkit-box;
+    line-height: 1.32;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
 }
 
