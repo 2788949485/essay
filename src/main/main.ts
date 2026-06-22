@@ -22,6 +22,7 @@ import {
   DEFAULT_HOTKEY,
   DEFAULT_SETTINGS,
   DEFAULT_BACKUP_HISTORY_LIMIT,
+  CURRENT_PIN_KDF_PARAMS,
   MAX_BACKUP_HISTORY_LIMIT,
   MAX_PIN_LENGTH,
   StoredSettings,
@@ -780,8 +781,13 @@ async function syncJsonNotesToDatabase() {
   if (noteFiles.length === 0) return;
 
   const corruptDir = path.join(notesDir, "corrupt");
-  const existingRows = dbRows<{ id: string; updated_at: string }>("SELECT id, updated_at FROM notes");
-  const existingUpdatedAt = new Map(existingRows.map((row) => [row.id, row.updated_at]));
+  const existingRows = dbRows<NoteDbRow>(
+    `SELECT
+      id, title, excerpt, tags_json, folder, favorite_at, archived_at, trashed_at,
+      pinned_at, content_json, html, plain_text, created_at, updated_at
+    FROM notes`
+  );
+  const existingNotes = new Map(existingRows.map((row) => [row.id, noteFromDbRow(row)]));
   let changed = false;
 
   dbExec("BEGIN");
@@ -791,8 +797,12 @@ async function syncJsonNotesToDatabase() {
       try {
         const raw = await readStoredTextFile(filePath);
         const note = normalizeNote(JSON.parse(raw));
-        const existing = existingUpdatedAt.get(note.id);
-        if (!existing || Date.parse(note.updatedAt) > Date.parse(existing)) {
+        const existing = existingNotes.get(note.id);
+        const shouldSync =
+          !existing ||
+          Date.parse(note.updatedAt) > Date.parse(existing.updatedAt) ||
+          (note.updatedAt === existing.updatedAt && JSON.stringify(note) !== JSON.stringify(existing));
+        if (shouldSync) {
           upsertNoteInDatabase(note);
           changed = true;
         }
@@ -949,11 +959,13 @@ async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<App
   if (payload.clearPrivacyPin) {
     next.privacyPinHash = null;
     next.privacyPinSalt = null;
+    next.privacyPinKdf = null;
   } else if (typeof payload.privacyPin === "string" && payload.privacyPin.trim()) {
     const pin = payload.privacyPin.trim().slice(0, MAX_PIN_LENGTH);
     const salt = randomBytes(16).toString("hex");
     next.privacyPinSalt = salt;
-    next.privacyPinHash = hashPinScrypt(pin, salt);
+    next.privacyPinKdf = CURRENT_PIN_KDF_PARAMS;
+    next.privacyPinHash = hashPinScrypt(pin, salt, CURRENT_PIN_KDF_PARAMS);
   }
 
   if (next.storageEncrypted && !(next.privacyPinHash && next.privacyPinSalt && nextPin)) {
@@ -969,7 +981,8 @@ async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<App
     current.backupHistoryLimit !== next.backupHistoryLimit ||
     isStorageEncryptionEnabled(current) !== isStorageEncryptionEnabled(next) ||
     current.privacyPinHash !== next.privacyPinHash ||
-    current.privacyPinSalt !== next.privacyPinSalt;
+    current.privacyPinSalt !== next.privacyPinSalt ||
+    JSON.stringify(current.privacyPinKdf) !== JSON.stringify(next.privacyPinKdf);
   if (storageChanged) {
     await reconfigureLocalStorage(current, next, nextPin);
   }
@@ -1222,36 +1235,45 @@ async function readNote(id: string): Promise<NoteRecord> {
 
 async function togglePinNote(id: string): Promise<NoteRecord> {
   const note = await readNote(id);
+  const now = new Date().toISOString();
   const next = normalizeNote({
     ...note,
-    pinnedAt: note.pinnedAt ? null : new Date().toISOString()
+    pinnedAt: note.pinnedAt ? null : now,
+    updatedAt: now
   });
   await backupExistingNote(next.id);
-  await writeNoteToDatabase(next);
+  await writeNoteToDatabase(next, false);
+  await persistNotesDatabase();
   void pruneBackups();
   return next;
 }
 
 async function toggleFavoriteNote(id: string): Promise<NoteRecord> {
   const note = await readNote(id);
+  const now = new Date().toISOString();
   const next = normalizeNote({
     ...note,
-    favoriteAt: note.favoriteAt ? null : new Date().toISOString()
+    favoriteAt: note.favoriteAt ? null : now,
+    updatedAt: now
   });
   await backupExistingNote(next.id);
-  await writeNoteToDatabase(next);
+  await writeNoteToDatabase(next, false);
+  await persistNotesDatabase();
   void pruneBackups();
   return next;
 }
 
 async function toggleArchiveNote(id: string): Promise<NoteRecord> {
   const note = await readNote(id);
+  const now = new Date().toISOString();
   const next = normalizeNote({
     ...note,
-    archivedAt: note.archivedAt ? null : new Date().toISOString()
+    archivedAt: note.archivedAt ? null : now,
+    updatedAt: now
   });
   await backupExistingNote(next.id);
-  await writeNoteToDatabase(next);
+  await writeNoteToDatabase(next, false);
+  await persistNotesDatabase();
   void pruneBackups();
   return next;
 }
@@ -1422,23 +1444,29 @@ async function createClipboardNote() {
 
 async function deleteNote(id: string) {
   const note = await readNote(id);
+  const now = new Date().toISOString();
   const next = normalizeNote({
     ...note,
-    trashedAt: new Date().toISOString()
+    trashedAt: now,
+    updatedAt: now
   });
   await backupExistingNote(id, "deleted");
-  await writeNoteToDatabase(next);
+  await writeNoteToDatabase(next, false);
+  await persistNotesDatabase();
   void pruneBackups();
 }
 
 async function restoreNote(id: string): Promise<NoteRecord> {
   const note = await readNote(id);
+  const now = new Date().toISOString();
   const next = normalizeNote({
     ...note,
-    trashedAt: null
+    trashedAt: null,
+    updatedAt: now
   });
   await backupExistingNote(id, "restore-trash");
-  await writeNoteToDatabase(next);
+  await writeNoteToDatabase(next, false);
+  await persistNotesDatabase();
   void pruneBackups();
   return next;
 }

@@ -318,9 +318,16 @@ function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes
   return (
     <NodeViewWrapper className={selected ? "collapsible-block is-selected" : "collapsible-block"} data-open={open ? "true" : "false"}>
       <div className="collapsible-block-header" contentEditable={false}>
-        <button type="button" className="collapsible-block-drag" data-drag-handle title="拖动排序" aria-label="拖动排序" onMouseDown={(event) => event.stopPropagation()}>
+        <span
+          className="collapsible-block-drag"
+          data-drag-handle
+          draggable
+          role="button"
+          title="拖动排序"
+          aria-label="拖动排序"
+        >
           <GripVertical size={14} />
-        </button>
+        </span>
         <button
           type="button"
           className={open ? "collapsible-block-toggle is-open" : "collapsible-block-toggle"}

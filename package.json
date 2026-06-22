@@ -1,6 +1,6 @@
 {
   "name": "suiji",
-  "version": "0.9.13",
+  "version": "0.9.16",
   "description": "随记 - 快捷呼出的本地自动保存富文本记录工具",
   "keywords": [
     "electron",

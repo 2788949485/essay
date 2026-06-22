@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  CURRENT_PIN_KDF_PARAMS,
+  CURRENT_STORAGE_KDF_PARAMS,
   DEFAULT_SETTINGS,
   decodeStoredBytes,
   encodeStoredBytes,
@@ -13,6 +15,8 @@ describe("security helpers", () => {
     const pin = "123456";
     const salt = "abcdef1234567890";
     const encoded = encodeStoredBytes(Buffer.from("hello", "utf8"), pin, salt, true);
+    const envelope = JSON.parse(encoded.toString("utf8"));
+    expect(envelope.kdf.N).toBe(CURRENT_STORAGE_KDF_PARAMS.N);
     const decoded = decodeStoredBytes(encoded, pin).toString("utf8");
     expect(decoded).toBe("hello");
   });
@@ -28,7 +32,8 @@ describe("security helpers", () => {
     const settings = {
       ...DEFAULT_SETTINGS,
       privacyPinSalt: salt,
-      privacyPinHash: hashPinScrypt("2468", salt),
+      privacyPinHash: hashPinScrypt("2468", salt, CURRENT_PIN_KDF_PARAMS),
+      privacyPinKdf: CURRENT_PIN_KDF_PARAMS,
       storageEncrypted: true
     };
 

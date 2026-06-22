@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.9.16 - 2026-06-22
+
+- Raised the storage encryption scrypt work factor for newly encrypted local data and encrypted exports from `N=2^15` to `N=2^18`, while keeping older encrypted files readable through per-file KDF metadata.
+- Added explicit KDF metadata for newly saved privacy PIN hashes so new or changed PINs can use the stronger scrypt parameters without breaking existing PINs.
+
+## 0.9.15 - 2026-06-22
+
+- Fixed note state persistence for delete, restore, favorite, archive, and pin actions by updating `updatedAt` and flushing those changes to disk immediately.
+- Hardened startup reconciliation so per-note shadow files also repair SQLite rows when timestamps match but record state differs, preventing deleted notes from reappearing after restart.
+
+## 0.9.14 - 2026-06-22
+
+- Fixed collapsible-block dragging by turning the drag affordance into a real draggable handle instead of a button that intercepted the pointer event before ProseMirror could start a node drag.
+
 ## 0.9.13 - 2026-06-22
 
 - Added a per-note encrypted-compatible shadow file alongside SQLite saves, and startup reconciliation from `notes/*.json`, so newly created or edited notes can be recovered even if the SQLite export path is interrupted.
