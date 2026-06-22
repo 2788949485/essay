@@ -19,9 +19,10 @@ import path from "node:path";
 import { toMarkdown } from "../shared/markdown.js";
 import type {
   AppSettings,
+  BackupEntry,
   BackupExportOptions,
   BackupImportOptions,
-  BackupEntry,
+  BatchExportRequest,
   BatchExportFormat,
   ExportPayload,
   NoteRecord,
@@ -38,6 +39,8 @@ const MAX_FOLDER_LENGTH = 40;
 const EDIT_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
 const DEFAULT_BACKUP_HISTORY_LIMIT = 80;
 const MAX_BACKUP_HISTORY_LIMIT = 200;
+const ENCRYPTED_NOTE_EXPORT_EXTENSION = "suiji-note";
+const ENCRYPTED_BATCH_EXPORT_EXTENSION = "suiji-export";
 const ALLOWED_EXPORT_FORMATS = new Set(["html", "json", "txt", "md", "pdf"]);
 const ALLOWED_BATCH_EXPORT_FORMATS = new Set(["html", "json", "txt", "md"]);
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
@@ -482,6 +485,15 @@ function safeExportName(name: string, ext: string) {
   return `${base || "未命名记录"}.${ext}`;
 }
 
+function safeExportBaseName(name: string) {
+  return safeExportName(name, "tmp").replace(/\.tmp$/, "");
+}
+
+function defaultEncryptedBatchExportName() {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  return `suiji-export-${stamp}.${ENCRYPTED_BATCH_EXPORT_EXTENSION}`;
+}
+
 async function uniqueExportPath(directory: string, fileName: string) {
   const parsed = path.parse(fileName);
   let candidate = path.join(directory, fileName);
@@ -499,6 +511,16 @@ async function uniqueExportPath(directory: string, fileName: string) {
 
 function isBatchExportFormat(value: unknown): value is BatchExportFormat {
   return typeof value === "string" && ALLOWED_BATCH_EXPORT_FORMATS.has(value);
+}
+
+function buildExportText(note: NoteRecord, format: Exclude<ExportPayload["format"], "pdf">) {
+  return format === "html"
+    ? buildHtmlExport(note)
+    : format === "json"
+      ? JSON.stringify(note, null, 2)
+      : format === "md"
+        ? buildMarkdownExport(note)
+        : buildTextExport(note);
 }
 
 function plainDoc(text: string): NoteRecord["content"] {
@@ -759,7 +781,32 @@ function sanitizeExportPayload(raw: unknown): ExportPayload {
   }
   return {
     format: payload.format,
-    note: sanitizeNotePayload(payload.note)
+    note: sanitizeNotePayload(payload.note),
+    encrypted: Boolean(payload.encrypted),
+    currentPrivacyPin:
+      typeof payload.currentPrivacyPin === "string" ? payload.currentPrivacyPin.slice(0, MAX_PIN_LENGTH) : undefined
+  };
+}
+
+function sanitizeBatchExportRequest(raw: unknown): BatchExportRequest {
+  if (typeof raw === "string") {
+    if (!isBatchExportFormat(raw)) {
+      throw new Error("Invalid export format");
+    }
+    return { format: raw };
+  }
+  if (!raw || typeof raw !== "object") {
+    throw new Error("Invalid export payload");
+  }
+  const payload = raw as Partial<BatchExportRequest>;
+  if (!isBatchExportFormat(payload.format)) {
+    throw new Error("Invalid export format");
+  }
+  return {
+    format: payload.format,
+    encrypted: Boolean(payload.encrypted),
+    currentPrivacyPin:
+      typeof payload.currentPrivacyPin === "string" ? payload.currentPrivacyPin.slice(0, MAX_PIN_LENGTH) : undefined
   };
 }
 
@@ -1984,46 +2031,87 @@ async function importMarkdownNotes(): Promise<NoteRecord[]> {
   return sortNotes(imported);
 }
 
-async function batchExportNotes(format: BatchExportFormat): Promise<{ directory: string; count: number } | null> {
-  if (!isBatchExportFormat(format)) throw new Error("Invalid export format");
-  const warningOptions: MessageBoxOptions = {
-    type: "warning",
-    buttons: ["Continue export", "Cancel"],
-    cancelId: 1,
-    defaultId: 1,
-    title: "Batch export plaintext files",
-    message: "Batch export creates plaintext files.",
-    detail: "Choose a private output directory if notes contain sensitive content."
-  };
+async function batchExportNotes(rawPayload: BatchExportRequest | BatchExportFormat): Promise<string | { directory: string; count: number } | null> {
+  const payload = sanitizeBatchExportRequest(rawPayload);
+  const settings = await readStoredSettings();
+  const canEncrypt = true;
+  const warningOptions: MessageBoxOptions = canEncrypt
+    ? {
+        type: "question",
+        buttons: ["明文导出", "加密导出", "取消"],
+        cancelId: 2,
+        defaultId: 0,
+        title: "批量导出记录",
+        message: "请选择导出方式",
+        detail: "明文导出会生成普通文件；加密导出会生成仅限随记识别的专用加密文件。"
+      }
+    : {
+        type: "warning",
+        buttons: ["继续导出", "取消"],
+        cancelId: 1,
+        defaultId: 1,
+        title: "批量导出记录",
+        message: "批量导出会生成明文文件",
+        detail: "请确认导出目录安全，避免把包含隐私的记录导出到公共目录、同步盘或共享设备。"
+      };
   const warning = mainWindow
     ? await dialog.showMessageBox(mainWindow, warningOptions)
     : await dialog.showMessageBox(warningOptions);
-  if (warning.response !== 0) return null;
+  if (warning.response === warningOptions.cancelId) return null;
+
+  const encrypted = canEncrypt && warning.response === 1;
+  const notes = (await listNotes()).filter((note) => !note.trashedAt);
+
+  if (encrypted) {
+    const verifiedPin = resolveVerifiedPin(settings, payload.currentPrivacyPin);
+    const result = mainWindow
+      ? await dialog.showSaveDialog(mainWindow, {
+          title: "导出加密记录",
+          defaultPath: defaultEncryptedBatchExportName(),
+          filters: [
+            { name: "Suiji Encrypted Export", extensions: [ENCRYPTED_BATCH_EXPORT_EXTENSION] },
+            { name: "All Files", extensions: ["*"] }
+          ]
+        })
+      : await dialog.showSaveDialog({
+          title: "导出加密记录",
+          defaultPath: defaultEncryptedBatchExportName(),
+          filters: [
+            { name: "Suiji Encrypted Export", extensions: [ENCRYPTED_BATCH_EXPORT_EXTENSION] },
+            { name: "All Files", extensions: ["*"] }
+          ]
+        });
+    if (result.canceled || !result.filePath) return null;
+    await writeEncryptedBackupExport(
+      result.filePath,
+      {
+        app: "suiji",
+        kind: "batch-export",
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        format: payload.format,
+        notes
+      },
+      verifiedPin
+    );
+    return result.filePath;
+  }
 
   const result = mainWindow
     ? await dialog.showOpenDialog(mainWindow, {
-        title: "Choose batch export directory",
+        title: "选择批量导出目录",
         properties: ["openDirectory", "createDirectory"]
       })
     : await dialog.showOpenDialog({
-        title: "Choose batch export directory",
+        title: "选择批量导出目录",
         properties: ["openDirectory", "createDirectory"]
       });
   if (result.canceled || result.filePaths.length === 0) return null;
 
   const directory = result.filePaths[0];
-  const notes = (await listNotes()).filter((note) => !note.trashedAt);
   for (const note of notes) {
-    const filePath = await uniqueExportPath(directory, safeExportName(note.title, format));
-    const content =
-      format === "html"
-        ? buildHtmlExport(note)
-        : format === "json"
-          ? JSON.stringify(note, null, 2)
-          : format === "md"
-            ? buildMarkdownExport(note)
-            : buildTextExport(note);
-    await atomicWriteFile(filePath, content);
+    const filePath = await uniqueExportPath(directory, safeExportName(note.title, payload.format));
+    await atomicWriteFile(filePath, buildExportText(note, payload.format));
   }
 
   return { directory, count: notes.length };
@@ -2437,7 +2525,7 @@ function createApplicationMenu() {
               title: "关于随记",
               message: "随记",
               detail:
-                `版本：${app.getVersion()}\n版权：Copyright (c) 2026 Suiji. All rights reserved.\n\n随记是快捷呼出的本地自动保存富文本记录工具。可选启用本地加密来保护数据库、历史版本和整库备份；普通导出文件仍为明文，请自行确认保存位置安全。`
+                `版本：${app.getVersion()}\n版权：Copyright (c) 2026 Suiji. All rights reserved.\n\n随记是快捷呼出的本地自动保存富文本记录工具。可选启用本地加密来保护数据库、历史版本和整库备份；单篇与批量导出可按需选择明文或加密。`
             } as const;
             if (mainWindow) {
               void dialog.showMessageBox(mainWindow, options);
@@ -2536,35 +2624,56 @@ function registerIpc() {
   ipcMain.handle("notes:backup-all", (_event, options?: BackupExportOptions) => exportAllNotesBackup(options));
   ipcMain.handle("notes:restore-backup", (_event, options?: BackupImportOptions) => restoreNotesBackup(options));
   ipcMain.handle("notes:import-markdown", importMarkdownNotes);
-  ipcMain.handle("notes:batch-export", (_event, format: BatchExportFormat) => batchExportNotes(format));
+  ipcMain.handle("notes:batch-export", (_event, payload: BatchExportRequest | BatchExportFormat) =>
+    batchExportNotes(payload)
+  );
   ipcMain.handle("notes:export", async (_event, rawPayload: ExportPayload) => {
     const payload = sanitizeExportPayload(rawPayload);
-    const ext = payload.format;
-    const warningOptions: MessageBoxOptions = {
-      type: "warning",
-      buttons: ["继续导出", "取消"],
-      cancelId: 1,
-      defaultId: 1,
-      title: payload.format === "pdf" ? "导出 PDF 文件" : "导出明文文件",
-      message: payload.format === "pdf" ? "导出的文件会保存为 PDF" : "导出的文件会以明文保存",
-      detail:
-        payload.format === "pdf"
-          ? "请确认保存位置安全，避免把包含隐私的记录导出到公共目录、同步盘或共享设备。"
-          : "请确认保存位置安全，避免把包含隐私的记录导出到公共目录、同步盘或共享设备。"
-    };
+    const settings = await readStoredSettings();
+    const canEncrypt = payload.format !== "pdf";
+    const warningOptions: MessageBoxOptions = canEncrypt
+      ? {
+          type: "question",
+          buttons: ["明文导出", "加密导出", "取消"],
+          cancelId: 2,
+          defaultId: 0,
+          title: "导出记录",
+          message: "请选择导出方式",
+          detail: "明文导出会保存普通文件；加密导出会保存为仅限随记识别的专用加密文件。"
+        }
+      : {
+          type: "warning",
+          buttons: ["继续导出", "取消"],
+          cancelId: 1,
+          defaultId: 1,
+          title: "导出 PDF 文件",
+          message: "导出的文件会保存为 PDF",
+          detail: "请确认保存位置安全，避免把包含隐私的记录导出到公共目录、同步盘或共享设备。"
+        };
     const warning = mainWindow
       ? await dialog.showMessageBox(mainWindow, warningOptions)
       : await dialog.showMessageBox(warningOptions);
-    if (warning.response !== 0) return null;
+    if (warning.response === warningOptions.cancelId) return null;
 
-    const dialogOptions = {
-      title: "导出记录",
-      defaultPath: safeExportName(payload.note.title, ext),
-      filters: [
-        { name: ext.toUpperCase(), extensions: [ext] },
-        { name: "All Files", extensions: ["*"] }
-      ]
-    };
+    const encrypted = canEncrypt && warning.response === 1;
+    const ext = encrypted ? ENCRYPTED_NOTE_EXPORT_EXTENSION : payload.format;
+    const dialogOptions = encrypted
+      ? {
+          title: "导出加密记录",
+          defaultPath: `${safeExportBaseName(payload.note.title)}.${ENCRYPTED_NOTE_EXPORT_EXTENSION}`,
+          filters: [
+            { name: "Suiji Encrypted Note", extensions: [ENCRYPTED_NOTE_EXPORT_EXTENSION] },
+            { name: "All Files", extensions: ["*"] }
+          ]
+        }
+      : {
+          title: "导出记录",
+          defaultPath: safeExportName(payload.note.title, ext),
+          filters: [
+            { name: ext.toUpperCase(), extensions: [ext] },
+            { name: "All Files", extensions: ["*"] }
+          ]
+        };
     const result = mainWindow
       ? await dialog.showSaveDialog(mainWindow, dialogOptions)
       : await dialog.showSaveDialog(dialogOptions);
@@ -2577,16 +2686,24 @@ function registerIpc() {
       return result.filePath;
     }
 
-    const content =
-      payload.format === "html"
-        ? buildHtmlExport(payload.note)
-        : payload.format === "json"
-          ? JSON.stringify(payload.note, null, 2)
-          : payload.format === "md"
-            ? buildMarkdownExport(payload.note)
-            : buildTextExport(payload.note);
+    if (encrypted) {
+      const verifiedPin = resolveVerifiedPin(settings, payload.currentPrivacyPin);
+      await writeEncryptedBackupExport(
+        result.filePath,
+        {
+          app: "suiji",
+          kind: "note-export",
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          format: payload.format,
+          note: payload.note
+        },
+        verifiedPin
+      );
+      return result.filePath;
+    }
 
-    await atomicWriteFile(result.filePath, content);
+    await atomicWriteFile(result.filePath, buildExportText(payload.note, payload.format));
     return result.filePath;
   });
   ipcMain.handle("settings:get", readSettings);

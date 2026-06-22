@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.4 - 2026-06-22
+
+- Fixed the settings PIN verification regression caused by font preset changes calling `settings:update` immediately while the settings dialog still had unsaved security drafts.
+- Changed font preset updates to stay in local draft state while the settings dialog is open, so security changes continue through the normal Save flow instead of failing early.
+
+## 0.9.3 - 2026-06-22
+
+- Added a plain-vs-encrypted choice to current-note exports so `HTML`、`Markdown`、`TXT`、`JSON` can now be saved as a Suiji-only encrypted note file instead of only plaintext.
+- Added the same plain-vs-encrypted choice to batch exports, writing one app-specific encrypted export file when protection is selected instead of a directory of plaintext files.
+- Updated export-related messaging so the app now clearly distinguishes local storage encryption, encrypted backups, and optional encrypted exports.
+
 ## 0.9.2 - 2026-06-18
 
 - Required re-entering the current PIN before disabling local encryption or changing the privacy PIN, instead of trusting the already-open session.

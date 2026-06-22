@@ -68,9 +68,17 @@ export type BackupImportOptions = {
 
 export type BatchExportFormat = "html" | "json" | "txt" | "md";
 
+export type BatchExportRequest = {
+  format: BatchExportFormat;
+  encrypted?: boolean;
+  currentPrivacyPin?: string;
+};
+
 export type ExportPayload = {
   note: NoteRecord;
   format: "html" | "json" | "txt" | "md" | "pdf";
+  encrypted?: boolean;
+  currentPrivacyPin?: string;
 };
 
 export type NotesBackup = {

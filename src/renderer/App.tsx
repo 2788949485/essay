@@ -975,8 +975,21 @@ export default function App() {
   async function applyFontPreset(presetId: FontPresetId) {
     const preset = FONT_PRESETS.find((item) => item.id === presetId);
     if (!preset) return;
-    const next = await window.suiji.updateSettings(settingsPayload({ ...(settings ?? DEFAULT_APP_SETTINGS), fontFamily: preset.family }, hotkeyDraft));
-    setSettings(next);
+    if (settingsOpen) {
+      setSettings((current) => (current ? { ...current, fontFamily: preset.family } : current));
+      return;
+    }
+    try {
+      const next = await window.suiji.updateSettings({
+        ...settingsPayload({ ...(settings ?? DEFAULT_APP_SETTINGS), fontFamily: preset.family }, hotkeyDraft),
+        currentPrivacyPin: currentPrivacyPinDraft.trim() || undefined,
+        privacyPin: privacyPinDraft.trim() || undefined,
+        clearPrivacyPin
+      });
+      setSettings(next);
+    } catch (error) {
+      setDataActionStatus(error instanceof Error ? error.message : "保存字体设置失败");
+    }
   }
 
   function handleCustomColorChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -1602,15 +1615,25 @@ export default function App() {
         html: editor.getHTML(),
         plainText: getContentPlainText(editor.getJSON())
       },
-      format
+      format,
+      currentPrivacyPin: currentPrivacyPinDraft.trim() || undefined
     });
   }
 
   async function handleBatchExport(format: BatchExportFormat) {
     setDataActionStatus("正在批量导出...");
     await saveActive({ skipClean: true });
-    const result = await window.suiji.batchExportNotes(format);
-    setDataActionStatus(result ? `已导出 ${result.count} 条：${result.directory}` : "已取消批量导出");
+    const result = await window.suiji.batchExportNotes({
+      format,
+      currentPrivacyPin: currentPrivacyPinDraft.trim() || undefined
+    });
+    setDataActionStatus(
+      typeof result === "string"
+        ? `加密导出已保存：${result}`
+        : result
+          ? `已导出 ${result.count} 条：${result.directory}`
+          : "已取消批量导出"
+    );
   }
 
   async function handleImportMarkdown() {
@@ -3128,7 +3151,7 @@ export default function App() {
                   <label className="settings-toggle settings-field-wide">
                     <div className="settings-toggle-copy">
                       <strong>使用隐私密码加密本地数据库和历史备份</strong>
-                      <small>会加密 `suiji.db`、历史版本和整库备份；普通导出仍是明文。</small>
+                      <small>会加密 `suiji.db`、历史版本和整库备份；单篇和批量导出会先让你选择明文或加密。</small>
                     </div>
                     <input
                       type="checkbox"
