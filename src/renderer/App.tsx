@@ -1,5 +1,5 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Extension, Node, mergeAttributes } from "@tiptap/core";
+import { Extension, Node as TiptapNode, mergeAttributes } from "@tiptap/core";
 import { EditorContent, FloatingMenu, NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor } from "@tiptap/react";
 import type { JSONContent, NodeViewProps } from "@tiptap/react";
 import { TextSelection } from "@tiptap/pm/state";
@@ -410,7 +410,7 @@ function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes
   );
 }
 
-const CollapsibleBlockExtension = Node.create({
+const CollapsibleBlockExtension = TiptapNode.create({
   name: "collapsibleBlock",
   group: "block",
   content: "collapsibleBlock*",
@@ -725,7 +725,7 @@ function keepEditorFocus(event: React.MouseEvent<HTMLButtonElement>) {
 
 const EDITOR_INTERACTIVE_BLOCK_TAGS = new Set(["P", "H1", "H2", "H3", "BLOCKQUOTE", "PRE", "UL", "OL", "TABLE", "HR", "IMG"]);
 
-function findInteractiveEditorBlock(target: Node | null, root: HTMLElement | null) {
+function findInteractiveEditorBlock(target: globalThis.Node | null, root: HTMLElement | null) {
   if (!target || !root) return null;
 
   let element = target instanceof HTMLElement ? target : target.parentElement;
@@ -932,7 +932,7 @@ export default function App() {
       return;
     }
     const root = editor.view.dom as HTMLElement | null;
-    const next = target instanceof Node ? findInteractiveEditorBlock(target, root) : null;
+    const next = target instanceof globalThis.Node ? findInteractiveEditorBlock(target, root) : null;
     setHoveredEditorBlock(next);
   }
 
@@ -1454,6 +1454,7 @@ export default function App() {
     const match = matches[safeIndex];
     editor.chain().focus().setTextSelection({ from: match.from, to: match.to }).run();
     setFindIndex(safeIndex);
+    revealEditorPosition(match.from);
   }
 
   function handleFindNext(direction: 1 | -1 = 1) {
@@ -1496,6 +1497,24 @@ export default function App() {
     markDirty();
     setFindMatches([]);
     setFindIndex(0);
+  }
+
+  function revealEditorPosition(targetPos: number) {
+    if (!editor) return;
+    window.requestAnimationFrame(() => {
+      const wrap = editorWrapRef.current;
+      if (!wrap) return;
+      const boundedPos = Math.min(Math.max(targetPos, 1), editor.state.doc.content.size);
+      const coords = editor.view.coordsAtPos(boundedPos);
+      const wrapRect = wrap.getBoundingClientRect();
+      const contentTop = coords.top - wrapRect.top + wrap.scrollTop;
+      const contentBottom = coords.bottom - wrapRect.top + wrap.scrollTop;
+      const visibleTop = wrap.scrollTop + 56;
+      const visibleBottom = wrap.scrollTop + wrap.clientHeight - 72;
+      if (contentTop >= visibleTop && contentBottom <= visibleBottom) return;
+      const nextTop = Math.max(0, contentTop - Math.max(88, wrap.clientHeight * 0.22));
+      wrap.scrollTo({ top: nextTop, behavior: "smooth" });
+    });
   }
 
   async function handleInsertImage(file: File | undefined) {
@@ -1669,14 +1688,7 @@ export default function App() {
     if (!editor) return;
     const targetPos = Math.min(item.pos + 1, editor.state.doc.content.size);
     editor.chain().focus().setTextSelection(targetPos).scrollIntoView().run();
-    window.requestAnimationFrame(() => {
-      const wrap = editorWrapRef.current;
-      if (!wrap) return;
-      const coords = editor.view.coordsAtPos(targetPos);
-      const wrapRect = wrap.getBoundingClientRect();
-      const top = coords.top - wrapRect.top + wrap.scrollTop - 24;
-      wrap.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-    });
+    revealEditorPosition(targetPos);
   }
 
   async function handleSettingsSave() {
@@ -1731,6 +1743,31 @@ export default function App() {
     }
   }
 
+  async function reloadNotesAfterExternalImport(preferredId?: string) {
+    const loadedNotes = await window.suiji.listNotes();
+    let nextNotes = loadedNotes;
+    if (nextNotes.length === 0) {
+      const created = await window.suiji.createNote();
+      nextNotes = [created];
+    }
+    const nextActive =
+      (preferredId ? nextNotes.find((note) => note.id === preferredId) : null) ??
+      nextNotes.find((note) => note.id === activeId) ??
+      nextNotes[0];
+    setNotes(nextNotes);
+    setActiveId(nextActive?.id || "");
+    if (nextActive && editor) {
+      setTitle(nextActive.title);
+      setTagsDraft(nextActive.tags.join(", "));
+      setFolderDraft(nextActive.folder);
+      editor.commands.setContent(nextActive.content, false);
+      setEditorText(getContentPlainText(nextActive.content));
+      setOutlineItems(extractOutline(editor));
+      revisionRef.current = 0;
+      setSaveState("saved");
+    }
+  }
+
   async function handleRestoreNotesBackup() {
     try {
       setDataActionStatus("正在恢复...");
@@ -1742,29 +1779,30 @@ export default function App() {
         setDataActionStatus("已取消恢复");
         return;
       }
-
-      const loadedNotes = await window.suiji.listNotes();
-      let nextNotes = loadedNotes;
-      if (nextNotes.length === 0) {
-        const created = await window.suiji.createNote();
-        nextNotes = [created];
-      }
-      const nextActive = nextNotes.find((note) => note.id === activeId) ?? nextNotes[0];
-      setNotes(nextNotes);
-      setActiveId(nextActive?.id || "");
-      if (nextActive && editor) {
-        setTitle(nextActive.title);
-        setTagsDraft(nextActive.tags.join(", "));
-        setFolderDraft(nextActive.folder);
-        editor.commands.setContent(nextActive.content, false);
-        setEditorText(getContentPlainText(nextActive.content));
-        setOutlineItems(extractOutline(editor));
-        revisionRef.current = 0;
-        setSaveState("saved");
-      }
+      await reloadNotesAfterExternalImport();
       setDataActionStatus(`恢复完成：导入 ${result.imported}/${result.total} 条，跳过 ${result.skipped} 条`);
     } catch (error) {
       setDataActionStatus(error instanceof Error ? error.message : "恢复失败");
+    }
+  }
+
+  async function handleImportEncryptedExport() {
+    try {
+      setDataActionStatus("正在导入加密导出...");
+      await saveActive({ skipClean: true });
+      const result = await window.suiji.importEncryptedExport({
+        currentPrivacyPin: currentPrivacyPinDraft.trim() || undefined
+      });
+      if (!result) {
+        setDataActionStatus("已取消导入加密导出");
+        return;
+      }
+      await reloadNotesAfterExternalImport();
+      setDataActionStatus(
+        `导入完成：${result.kind === "note-export" ? "单篇" : "批量"}加密导出，导入 ${result.imported}/${result.total} 条，跳过 ${result.skipped} 条`
+      );
+    } catch (error) {
+      setDataActionStatus(error instanceof Error ? error.message : "导入加密导出失败");
     }
   }
 
@@ -2506,69 +2544,83 @@ export default function App() {
           <div className="editor-column">
             {findOpen ? (
               <div className="find-panel">
-                <div className="find-inputs">
-                  <input
-                    value={findQuery}
-                    autoFocus
-                    placeholder="查找"
-                    onChange={(event) => setFindQuery(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        handleFindNext(event.shiftKey ? -1 : 1);
-                      }
-                      if (event.key === "Escape") {
-                        setFindOpen(false);
-                        focusEditorSoon();
-                      }
-                    }}
-                  />
-                  {replaceOpen ? (
+                <div className="find-panel-fields">
+                  <span className="find-search-chip" aria-hidden="true">
+                    <Search size={14} />
+                  </span>
+                  <div className="find-inputs">
                     <input
-                      value={replaceValue}
-                      placeholder="替换为"
-                      onChange={(event) => setReplaceValue(event.target.value)}
+                      value={findQuery}
+                      autoFocus
+                      placeholder="查找"
+                      onChange={(event) => setFindQuery(event.target.value)}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
                           event.preventDefault();
-                          handleReplaceCurrent();
+                          handleFindNext(event.shiftKey ? -1 : 1);
+                        }
+                        if (event.key === "Escape") {
+                          setFindOpen(false);
+                          focusEditorSoon();
                         }
                       }}
                     />
-                  ) : null}
+                    {replaceOpen ? (
+                      <input
+                        value={replaceValue}
+                        placeholder="替换为"
+                        onChange={(event) => setReplaceValue(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            handleReplaceCurrent();
+                          }
+                        }}
+                      />
+                    ) : null}
+                  </div>
                 </div>
-                <span className="find-count">
-                  {findQuery ? `${findMatches.length ? findIndex + 1 : 0}/${findMatches.length}` : "0/0"}
-                </span>
-                <button type="button" onClick={() => handleFindNext(-1)}>
-                  上一个
-                </button>
-                <button type="button" onClick={() => handleFindNext(1)}>
-                  下一个
-                </button>
-                <button type="button" onClick={() => setReplaceOpen((current) => !current)}>
-                  替换
-                </button>
-                {replaceOpen ? (
-                  <>
-                    <button type="button" onClick={handleReplaceCurrent}>
-                      替换当前
+                <div className="find-panel-actions">
+                  <span className="find-count">
+                    {findQuery ? `${findMatches.length ? findIndex + 1 : 0}/${findMatches.length}` : "0/0"}
+                  </span>
+                  <div className="find-action-group">
+                    <button type="button" onClick={() => handleFindNext(-1)}>
+                      上一个
                     </button>
-                    <button type="button" onClick={handleReplaceAll}>
-                      全部替换
+                    <button type="button" onClick={() => handleFindNext(1)}>
+                      下一个
                     </button>
-                  </>
-                ) : null}
-                <button
-                  type="button"
-                  aria-label="关闭查找"
-                  onClick={() => {
-                    setFindOpen(false);
-                    focusEditorSoon();
-                  }}
-                >
-                  关闭
-                </button>
+                  </div>
+                  <button
+                    type="button"
+                    className={replaceOpen ? "is-active" : undefined}
+                    onClick={() => setReplaceOpen((current) => !current)}
+                  >
+                    替换
+                  </button>
+                  {replaceOpen ? (
+                    <div className="find-action-group">
+                      <button type="button" onClick={handleReplaceCurrent}>
+                        替换当前
+                      </button>
+                      <button type="button" onClick={handleReplaceAll}>
+                        全部替换
+                      </button>
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="find-close-button"
+                    aria-label="关闭查找"
+                    onClick={() => {
+                      setFindOpen(false);
+                      focusEditorSoon();
+                    }}
+                  >
+                    关闭
+                  </button>
+                </div>
               </div>
             ) : null}
 
@@ -3127,10 +3179,10 @@ export default function App() {
                       type="password"
                       value={currentPrivacyPinDraft}
                       onChange={(event) => setCurrentPrivacyPinDraft(event.target.value)}
-                      placeholder={settings?.hasPrivacyPin ? "关闭加密、更换 PIN、加密导出时需要" : "恢复加密备份时输入对应密码"}
+                      placeholder={settings?.hasPrivacyPin ? "关闭加密、更换 PIN、加密导出/导入时需要" : "恢复或导入加密文件时输入对应密码"}
                     />
                     <small className="setting-hint">
-                      {settings?.hasPrivacyPin ? "敏感操作会要求再次验证当前 PIN。" : "仅在恢复加密备份或导出加密备份时使用。"}
+                      {settings?.hasPrivacyPin ? "敏感操作会要求再次验证当前 PIN。" : "仅在恢复备份、导出或导入加密文件时使用。"}
                     </small>
                   </label>
                   <label className="settings-field settings-field-wide">
@@ -3245,6 +3297,10 @@ export default function App() {
                       <button type="button" onClick={() => void handleRestoreNotesBackup()}>
                         <Upload size={16} />
                         恢复备份
+                      </button>
+                      <button type="button" onClick={() => void handleImportEncryptedExport()}>
+                        <Lock size={16} />
+                        导入加密
                       </button>
                       <button type="button" onClick={() => void handleImportMarkdown()}>
                         <Upload size={16} />

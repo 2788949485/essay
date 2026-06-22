@@ -11,12 +11,41 @@
   shell,
   Tray
 } from "electron";
-import type { MenuItemConstructorOptions, MessageBoxOptions } from "electron";
-import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import type { MessageBoxOptions } from "electron";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { toMarkdown } from "../shared/markdown.js";
+import { buildApplicationMenuTemplate, buildTrayMenuTemplate } from "./app-shell.js";
+import { buildHtmlExport } from "./html-export.js";
+import {
+  DEFAULT_HOTKEY,
+  DEFAULT_SETTINGS,
+  DEFAULT_BACKUP_HISTORY_LIMIT,
+  MAX_BACKUP_HISTORY_LIMIT,
+  MAX_PIN_LENGTH,
+  StoredSettings,
+  decodeStoredBytes,
+  encodeStoredBytes,
+  hashPinScrypt,
+  isStorageEncryptionEnabled,
+  publicSettings,
+  resolveVerifiedPin,
+  sanitizeStoredSettings,
+  verifyPin
+} from "./security.js";
+import {
+  buildExportText,
+  defaultBackupName,
+  defaultEncryptedBatchExportName,
+  markdownToDoc,
+  parseBackupEntryName,
+  parseBackupNotes,
+  plainDoc,
+  safeExportBaseName,
+  safeExportName
+} from "./note-transfer.js";
+import { parseEncryptedExportBundle } from "../shared/encrypted-export.js";
 import type {
   AppSettings,
   BackupEntry,
@@ -24,6 +53,8 @@ import type {
   BackupImportOptions,
   BatchExportRequest,
   BatchExportFormat,
+  EncryptedExportImportOptions,
+  EncryptedExportImportResult,
   ExportPayload,
   NoteRecord,
   NotesBackup,
@@ -31,14 +62,10 @@ import type {
   SettingsUpdatePayload
 } from "../shared/types.js";
 
-const DEFAULT_HOTKEY = "CommandOrControl+Alt+J";
 const NOTE_ID_PATTERN = /^[a-f0-9-]{36}$/i;
 const MAX_TEXT_FIELD_LENGTH = 500_000;
-const MAX_PIN_LENGTH = 128;
 const MAX_FOLDER_LENGTH = 40;
 const EDIT_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
-const DEFAULT_BACKUP_HISTORY_LIMIT = 80;
-const MAX_BACKUP_HISTORY_LIMIT = 200;
 const ENCRYPTED_NOTE_EXPORT_EXTENSION = "suiji-note";
 const ENCRYPTED_BATCH_EXPORT_EXTENSION = "suiji-export";
 const ALLOWED_EXPORT_FORMATS = new Set(["html", "json", "txt", "md", "pdf"]);
@@ -48,39 +75,6 @@ const DB_FLUSH_DELAY_MS = 900;
 const IDLE_LOCK_CHECK_INTERVAL_MS = 15_000;
 const DEBUG_LOG_PATH = process.env.SUIJI_DEBUG_LOG || (app.isPackaged ? "" : "d:\\zhuomian\\essay\\runtime_cache\\suiji-debug.log");
 const DEBUG_PORT = process.env.SUIJI_DEBUG_PORT || "";
-
-type StoredSettings = Omit<AppSettings, "hasPrivacyPin" | "storageUnlocked"> & {
-  privacyPinHash: string | null;
-  privacyPinSalt: string | null;
-};
-
-type EncryptedEnvelope = {
-  app: "suiji";
-  kind: "encrypted";
-  version: 1;
-  salt: string;
-  iv: string;
-  tag: string;
-  data: string;
-};
-
-const DEFAULT_SETTINGS: StoredSettings = {
-  hotkey: DEFAULT_HOTKEY,
-  startHidden: false,
-  lockOnHide: true,
-  idleLockMinutes: 0,
-  backupHistoryEnabled: true,
-  backupHistoryLimit: DEFAULT_BACKUP_HISTORY_LIMIT,
-  storageEncrypted: false,
-  launchAtLogin: false,
-  theme: "light",
-  fontFamily: "",
-  fontSize: 16,
-  lineWidth: 880,
-  lineHeight: 1.72,
-  privacyPinHash: null,
-  privacyPinSalt: null
-};
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -215,138 +209,6 @@ function backupPath(prefix: string, id: string) {
   return path.join(backupsDir, `${prefix}-${stamp}-${id}.json`);
 }
 
-function publicSettings(settings: StoredSettings): AppSettings {
-  const storageEncrypted = isStorageEncryptionEnabled(settings);
-  return {
-    hotkey: settings.hotkey,
-    startHidden: settings.startHidden,
-    lockOnHide: settings.lockOnHide,
-    idleLockMinutes: settings.idleLockMinutes,
-    backupHistoryEnabled: settings.backupHistoryEnabled,
-    backupHistoryLimit: settings.backupHistoryLimit,
-    storageEncrypted,
-    storageUnlocked: !storageEncrypted || Boolean(activePrivacyPin),
-    launchAtLogin: settings.launchAtLogin,
-    theme: settings.theme,
-    fontFamily: settings.fontFamily,
-    fontSize: settings.fontSize,
-    lineWidth: settings.lineWidth,
-    lineHeight: settings.lineHeight,
-    hasPrivacyPin: Boolean(settings.privacyPinHash && settings.privacyPinSalt)
-  };
-}
-
-function isStorageEncryptionEnabled(settings: StoredSettings) {
-  return Boolean(settings.storageEncrypted && settings.privacyPinHash && settings.privacyPinSalt);
-}
-
-function hashPin(pin: string, salt: string) {
-  return createHash("sha256").update(`${salt}:${pin}`).digest("hex");
-}
-
-function hashPinScrypt(pin: string, salt: string) {
-  return scryptSync(pin, salt, 64).toString("hex");
-}
-
-function verifyPin(settings: StoredSettings, pin: string) {
-  if (!settings.privacyPinHash || !settings.privacyPinSalt) return true;
-  const expected = Buffer.from(settings.privacyPinHash, "hex");
-  const candidateHash = expected.length === 32 ? hashPin(pin, settings.privacyPinSalt) : hashPinScrypt(pin, settings.privacyPinSalt);
-  const actual = Buffer.from(candidateHash, "hex");
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
-}
-
-function resolveVerifiedPin(settings: StoredSettings, suppliedPin?: string, allowSessionFallback = true) {
-  const candidate =
-    coerceString(suppliedPin, "", MAX_PIN_LENGTH).trim() || (allowSessionFallback ? activePrivacyPin || "" : "");
-  if (!candidate || !verifyPin(settings, candidate)) {
-    throw new Error("需要先验证当前隐私密码");
-  }
-  return candidate;
-}
-
-function sanitizeStoredSettings(raw: Partial<StoredSettings>): StoredSettings {
-  return {
-    hotkey: coerceString(raw.hotkey, DEFAULT_HOTKEY, 120).trim() || DEFAULT_HOTKEY,
-    startHidden: Boolean(raw.startHidden),
-    lockOnHide: Boolean(raw.lockOnHide),
-    idleLockMinutes: Math.min(Math.max(Number(raw.idleLockMinutes) || 0, 0), 240),
-    backupHistoryEnabled: raw.backupHistoryEnabled !== false,
-    backupHistoryLimit: Math.min(
-      Math.max(Number(raw.backupHistoryLimit) || DEFAULT_BACKUP_HISTORY_LIMIT, 1),
-      MAX_BACKUP_HISTORY_LIMIT
-    ),
-    storageEncrypted: Boolean(raw.storageEncrypted),
-    launchAtLogin: Boolean(raw.launchAtLogin),
-    theme: raw.theme === "dark" ? "dark" : "light",
-    fontFamily: coerceString(raw.fontFamily, "", 120),
-    fontSize: Math.min(Math.max(Number(raw.fontSize) || 16, 13), 24),
-    lineWidth: Math.min(Math.max(Number(raw.lineWidth) || 880, 640), 1200),
-    lineHeight: Math.min(Math.max(Number(raw.lineHeight) || 1.72, 1.35), 2.2),
-    privacyPinHash: typeof raw.privacyPinHash === "string" ? raw.privacyPinHash : null,
-    privacyPinSalt: typeof raw.privacyPinSalt === "string" ? raw.privacyPinSalt : null
-  };
-}
-
-function deriveStorageKey(pin: string, salt: string) {
-  return scryptSync(pin, `${salt}:storage`, 32, { N: 1 << 15, r: 8, p: 1, maxmem: 128 * 1024 * 1024 });
-}
-
-function parseEncryptedEnvelope(raw: Buffer): EncryptedEnvelope | null {
-  const text = raw.toString("utf8").trim();
-  if (!text.startsWith("{")) return null;
-  try {
-    const parsed = JSON.parse(text) as Partial<EncryptedEnvelope>;
-    if (
-      parsed.app !== "suiji" ||
-      parsed.kind !== "encrypted" ||
-      parsed.version !== 1 ||
-      typeof parsed.salt !== "string" ||
-      typeof parsed.iv !== "string" ||
-      typeof parsed.tag !== "string" ||
-      typeof parsed.data !== "string"
-    ) {
-      return null;
-    }
-    return parsed as EncryptedEnvelope;
-  } catch {
-    return null;
-  }
-}
-
-function encodeStoredBytes(content: Uint8Array, pin: string | null, salt: string | null, encrypt: boolean) {
-  if (!encrypt) return Buffer.from(content);
-  if (!pin || !salt) {
-    throw new Error("Storage key unavailable");
-  }
-  const iv = randomBytes(12);
-  const key = deriveStorageKey(pin, salt);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
-  const encrypted = Buffer.concat([cipher.update(Buffer.from(content)), cipher.final()]);
-  const envelope: EncryptedEnvelope = {
-    app: "suiji",
-    kind: "encrypted",
-    version: 1,
-    salt,
-    iv: iv.toString("base64"),
-    tag: cipher.getAuthTag().toString("base64"),
-    data: encrypted.toString("base64")
-  };
-  return Buffer.from(JSON.stringify(envelope), "utf8");
-}
-
-function decodeStoredBytes(content: Buffer, pin: string | null) {
-  const envelope = parseEncryptedEnvelope(content);
-  if (!envelope) return content;
-  if (!pin) {
-    throw new Error("Storage locked");
-  }
-  const key = deriveStorageKey(pin, envelope.salt);
-  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(envelope.iv, "base64"));
-  decipher.setAuthTag(Buffer.from(envelope.tag, "base64"));
-  return Buffer.concat([decipher.update(Buffer.from(envelope.data, "base64")), decipher.final()]);
-}
-
 async function atomicWriteFile(filePath: string, content: string) {
   const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   try {
@@ -399,16 +261,18 @@ async function writeEncryptedBackupExport(filePath: string, value: unknown, pin:
 
 async function readImportedBackupText(filePath: string, providedPin?: string) {
   const raw = await fs.readFile(filePath);
-  const envelope = parseEncryptedEnvelope(raw);
-  if (!envelope) return raw.toString("utf8");
-  const pin = coerceString(providedPin, "", MAX_PIN_LENGTH).trim() || activePrivacyPin || "";
+  const pin = coerceString(providedPin, "", MAX_PIN_LENGTH).trim() || activePrivacyPin || null;
   if (!pin) {
-    throw new Error("加密备份需要先输入当前隐私密码");
+    try {
+      return decodeStoredBytes(raw, null).toString("utf8");
+    } catch {
+      throw new Error("加密文件需要先输入当前隐私密码");
+    }
   }
   try {
     return decodeStoredBytes(raw, pin).toString("utf8");
   } catch {
-    throw new Error("当前隐私密码无法解密这个备份");
+    throw new Error("当前隐私密码无法解密这个文件");
   }
 }
 
@@ -476,24 +340,6 @@ async function pruneBackups() {
   }
 }
 
-function safeExportName(name: string, ext: string) {
-  const base = (name || "未命名记录")
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 80);
-  return `${base || "未命名记录"}.${ext}`;
-}
-
-function safeExportBaseName(name: string) {
-  return safeExportName(name, "tmp").replace(/\.tmp$/, "");
-}
-
-function defaultEncryptedBatchExportName() {
-  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
-  return `suiji-export-${stamp}.${ENCRYPTED_BATCH_EXPORT_EXTENSION}`;
-}
-
 async function uniqueExportPath(directory: string, fileName: string) {
   const parsed = path.parse(fileName);
   let candidate = path.join(directory, fileName);
@@ -511,156 +357,6 @@ async function uniqueExportPath(directory: string, fileName: string) {
 
 function isBatchExportFormat(value: unknown): value is BatchExportFormat {
   return typeof value === "string" && ALLOWED_BATCH_EXPORT_FORMATS.has(value);
-}
-
-function buildExportText(note: NoteRecord, format: Exclude<ExportPayload["format"], "pdf">) {
-  return format === "html"
-    ? buildHtmlExport(note)
-    : format === "json"
-      ? JSON.stringify(note, null, 2)
-      : format === "md"
-        ? buildMarkdownExport(note)
-        : buildTextExport(note);
-}
-
-function plainDoc(text: string): NoteRecord["content"] {
-  return {
-    type: "doc",
-    content: [
-      {
-        type: "paragraph",
-        content: text ? [{ type: "text", text }] : undefined
-      }
-    ]
-  };
-}
-
-function splitMarkdownTableRow(line: string) {
-  return line
-    .trim()
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((cell) => cell.trim().replace(/\\\|/g, "|"));
-}
-
-function isMarkdownTableSeparator(line: string) {
-  const cells = splitMarkdownTableRow(line);
-  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
-}
-
-function tableCellNode(type: "tableHeader" | "tableCell", text: string) {
-  return {
-    type,
-    content: [
-      {
-        type: "paragraph",
-        content: text ? [{ type: "text", text }] : undefined
-      }
-    ]
-  };
-}
-
-function markdownTableToDocRows(lines: string[]) {
-  const rows = [lines[0], ...lines.slice(2)].map(splitMarkdownTableRow);
-  const columnCount = Math.max(...rows.map((row) => row.length), 1);
-  return rows.map((row, rowIndex) => ({
-    type: "tableRow",
-    content: Array.from({ length: columnCount }, (_, index) =>
-      tableCellNode(rowIndex === 0 ? "tableHeader" : "tableCell", row[index] ?? "")
-    )
-  }));
-}
-
-function markdownToDoc(markdown: string): NoteRecord["content"] {
-  const blocks: NonNullable<NoteRecord["content"]["content"]> = [];
-  let pendingParagraph: string[] = [];
-
-  const flushParagraph = () => {
-    const text = pendingParagraph.join(" ").trim();
-    if (text) {
-      blocks.push({ type: "paragraph", content: [{ type: "text", text }] });
-    }
-    pendingParagraph = [];
-  };
-
-  const lines = markdown.split(/\r?\n/);
-  for (let index = 0; index < lines.length; index += 1) {
-    const rawLine = lines[index];
-    const line = rawLine.trimEnd();
-    if (!line.trim()) {
-      flushParagraph();
-      continue;
-    }
-
-    if (line.includes("|") && lines[index + 1] && isMarkdownTableSeparator(lines[index + 1])) {
-      flushParagraph();
-      const tableLines = [line, lines[index + 1].trimEnd()];
-      index += 2;
-      while (index < lines.length && lines[index].includes("|") && lines[index].trim()) {
-        tableLines.push(lines[index].trimEnd());
-        index += 1;
-      }
-      index -= 1;
-      blocks.push({
-        type: "table",
-        content: markdownTableToDocRows(tableLines)
-      });
-      continue;
-    }
-
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
-    if (heading) {
-      flushParagraph();
-      blocks.push({
-        type: "heading",
-        attrs: { level: heading[1].length },
-        content: [{ type: "text", text: heading[2].trim() }]
-      });
-      continue;
-    }
-
-    const bullet = line.match(/^[-*+]\s+(.+)$/);
-    if (bullet) {
-      flushParagraph();
-      blocks.push({
-        type: "bulletList",
-        content: [
-          {
-            type: "listItem",
-            content: [{ type: "paragraph", content: [{ type: "text", text: bullet[1].trim() }] }]
-          }
-        ]
-      });
-      continue;
-    }
-
-    const ordered = line.match(/^\d+[.)]\s+(.+)$/);
-    if (ordered) {
-      flushParagraph();
-      blocks.push({
-        type: "orderedList",
-        attrs: { start: 1 },
-        content: [
-          {
-            type: "listItem",
-            content: [{ type: "paragraph", content: [{ type: "text", text: ordered[1].trim() }] }]
-          }
-        ]
-      });
-      continue;
-    }
-
-    pendingParagraph.push(line.trim());
-  }
-
-  flushParagraph();
-  return { type: "doc", content: blocks.length ? blocks : [{ type: "paragraph" }] };
-}
-
-function defaultBackupName(encrypted = false) {
-  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
-  return `suiji-backup-${stamp}.${encrypted ? "suiji-backup" : "json"}`;
 }
 
 function coerceString(value: unknown, fallback = "", maxLength = MAX_TEXT_FIELD_LENGTH) {
@@ -808,484 +504,6 @@ function sanitizeBatchExportRequest(raw: unknown): BatchExportRequest {
     currentPrivacyPin:
       typeof payload.currentPrivacyPin === "string" ? payload.currentPrivacyPin.slice(0, MAX_PIN_LENGTH) : undefined
   };
-}
-
-function parseBackupNotes(raw: unknown): unknown[] {
-  if (Array.isArray(raw)) return raw;
-  if (raw && typeof raw === "object" && Array.isArray((raw as Partial<NotesBackup>).notes)) {
-    return (raw as Partial<NotesBackup>).notes ?? [];
-  }
-  throw new Error("Invalid backup file");
-}
-
-function parseBackupEntryName(fileName: string, id: string, size: number, fallbackDate: Date): BackupEntry | null {
-  if (!fileName.endsWith(`-${id}.json`)) return null;
-  const match = fileName.match(/^(.+?)-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)-[a-f0-9-]{36}\.json$/i);
-  return {
-    fileName,
-    prefix: match?.[1] ?? "backup",
-    createdAt: match?.[2]?.replace(/T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/, "T$1:$2:$3.$4Z") ?? fallbackDate.toISOString(),
-    size
-  };
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function escapeHtmlAttribute(value: string) {
-  return escapeHtml(value).replace(/`/g, "&#96;");
-}
-
-type JsonNode = NoteRecord["content"];
-
-function safeHtmlUrl(value: unknown) {
-  const raw = typeof value === "string" ? value.trim() : "";
-  if (!raw) return "";
-  if (raw.startsWith("data:image/")) return raw;
-  return validateExternalUrl(raw) ?? "";
-}
-
-function renderInlineHtml(node: JsonNode): string {
-  if (node.type === "text") {
-    const text = escapeHtml(node.text ?? "");
-    return (node.marks ?? []).reduce((current, mark) => {
-      if (mark.type === "bold") return `<strong>${current}</strong>`;
-      if (mark.type === "italic") return `<em>${current}</em>`;
-      if (mark.type === "strike") return `<s>${current}</s>`;
-      if (mark.type === "underline") return `<u>${current}</u>`;
-      if (mark.type === "code") return `<code>${current}</code>`;
-      if (mark.type === "highlight") return `<mark>${current}</mark>`;
-      if (mark.type === "link") {
-        const href = safeHtmlUrl(mark.attrs?.href);
-        return href ? `<a href="${escapeHtmlAttribute(href)}" rel="noreferrer">${current}</a>` : current;
-      }
-      return current;
-    }, text);
-  }
-
-  if (node.type === "hardBreak") return "<br>";
-  if (node.type === "image") return renderBlockHtml(node);
-  return (node.content ?? []).map(renderInlineHtml).join("");
-}
-
-function renderListItemHtml(node: JsonNode): string {
-  const children = node.content ?? [];
-  const body = children.map(renderBlockHtml).join("");
-  return `<li>${body || "<p></p>"}</li>`;
-}
-
-function renderTaskItemHtml(node: JsonNode): string {
-  const checked = node.attrs?.checked ? " checked" : "";
-  const children = node.content ?? [];
-  return `<li><label><input type="checkbox"${checked} disabled></label><div>${children.map(renderBlockHtml).join("") || "<p></p>"}</div></li>`;
-}
-
-function renderTableCellHtml(node: JsonNode) {
-  const tag = node.type === "tableHeader" ? "th" : "td";
-  const colspan = Number(node.attrs?.colspan ?? 1);
-  const rowspan = Number(node.attrs?.rowspan ?? 1);
-  const attrs = [
-    colspan > 1 ? ` colspan="${colspan}"` : "",
-    rowspan > 1 ? ` rowspan="${rowspan}"` : ""
-  ].join("");
-  return `<${tag}${attrs}>${(node.content ?? []).map(renderBlockHtml).join("") || "<p></p>"}</${tag}>`;
-}
-
-function renderTableHtml(node: JsonNode) {
-  const rows = (node.content ?? [])
-    .map((row) => `<tr>${(row.content ?? []).map(renderTableCellHtml).join("")}</tr>`)
-    .join("");
-  return rows ? `<table><tbody>${rows}</tbody></table>` : "";
-}
-
-function renderBlockHtml(node: JsonNode): string {
-  const children = node.content ?? [];
-
-  switch (node.type) {
-    case "doc":
-      return children.map(renderBlockHtml).join("");
-    case "paragraph":
-      return `<p>${renderInlineHtml(node)}</p>`;
-    case "heading": {
-      const level = Math.min(Math.max(Number(node.attrs?.level ?? 1), 1), 6);
-      return `<h${level}>${renderInlineHtml(node)}</h${level}>`;
-    }
-    case "blockquote":
-      return `<blockquote>${children.map(renderBlockHtml).join("")}</blockquote>`;
-    case "collapsibleBlock": {
-      const title = escapeHtml(typeof node.attrs?.title === "string" && node.attrs.title.trim() ? node.attrs.title : "空折叠块");
-      const open = node.attrs?.open === false ? "" : " open";
-      return `<details data-type="collapsible-block"${open}><summary>${title}</summary><div>${children.map(renderBlockHtml).join("") || "<p></p>"}</div></details>`;
-    }
-    case "bulletList":
-      return `<ul>${children.map(renderListItemHtml).join("")}</ul>`;
-    case "orderedList":
-      return `<ol>${children.map(renderListItemHtml).join("")}</ol>`;
-    case "taskList":
-      return `<ul data-type="taskList">${children.map(renderTaskItemHtml).join("")}</ul>`;
-    case "listItem":
-      return renderListItemHtml(node);
-    case "taskItem":
-      return renderTaskItemHtml(node);
-    case "table":
-      return renderTableHtml(node);
-    case "codeBlock":
-      return `<pre><code>${escapeHtml(children.map((child) => child.text ?? "").join(""))}</code></pre>`;
-    case "horizontalRule":
-      return "<hr>";
-    case "image": {
-      const src = safeHtmlUrl(node.attrs?.src);
-      if (!src) return "";
-      const alt = escapeHtmlAttribute(typeof node.attrs?.alt === "string" ? node.attrs.alt : "");
-      return `<img src="${escapeHtmlAttribute(src)}" alt="${alt}">`;
-    }
-    default:
-      return children.map(renderBlockHtml).join("");
-  }
-}
-
-function formatExportDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  }).format(date);
-}
-
-function buildMarkdownExport(note: NoteRecord) {
-  const title = (note.title || "未命名记录").trim() || "未命名记录";
-  const body = toMarkdown(note.content).trim();
-  return body ? `# ${title}\n\n${body}\n` : `# ${title}\n`;
-}
-
-function buildTextExport(note: NoteRecord) {
-  const title = (note.title || "未命名记录").trim() || "未命名记录";
-  const body = note.plainText.trim();
-  return body ? `${title}\n\n${body}\n` : `${title}\n`;
-}
-
-function buildHtmlExport(note: NoteRecord) {
-  const title = escapeHtml(note.title || "未命名记录");
-  const createdAt = formatExportDate(note.createdAt);
-  const updatedAt = formatExportDate(note.updatedAt);
-  const plainText = note.plainText.trim();
-  const wordCount = plainText ? Array.from(plainText.replace(/\s+/g, "")).length : 0;
-
-  return `<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${title}</title>
-  <style>
-    @page {
-      size: A4;
-      margin: 18mm 16mm 20mm;
-    }
-
-    :root {
-      color-scheme: light;
-      --bg: #f5f1e8;
-      --paper: #fffdf8;
-      --ink: #28251f;
-      --muted: #777064;
-      --line: #ded2bd;
-      --accent: #2f6b57;
-      --accent-soft: #e5f0ea;
-      --code-bg: #26302c;
-      --code-ink: #f8f1e6;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--ink);
-      font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", Arial, sans-serif;
-      line-height: 1.75;
-    }
-
-    .page {
-      width: min(920px, calc(100% - 32px));
-      margin: 32px auto;
-      padding: 42px 48px 56px;
-      background: var(--paper);
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      box-shadow: 0 16px 42px rgba(74, 61, 39, 0.12);
-    }
-
-    header {
-      padding-bottom: 24px;
-      margin-bottom: 28px;
-      border-bottom: 1px solid var(--line);
-    }
-
-    h1 {
-      margin: 0 0 14px;
-      font-size: clamp(30px, 5vw, 44px);
-      line-height: 1.2;
-      letter-spacing: 0;
-    }
-
-    .meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px 16px;
-      color: var(--muted);
-      font-size: 13px;
-    }
-
-    .meta span {
-      display: inline-flex;
-      align-items: center;
-      min-height: 24px;
-      padding: 1px 9px;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      background: #faf6ed;
-    }
-
-    main {
-      font-size: 16px;
-    }
-
-    main > *:first-child {
-      margin-top: 0;
-    }
-
-    main > *:last-child {
-      margin-bottom: 0;
-    }
-
-    h2, h3, h4 {
-      margin: 1.6em 0 0.65em;
-      line-height: 1.3;
-    }
-
-    h2 {
-      padding-bottom: 8px;
-      border-bottom: 1px solid var(--line);
-      font-size: 26px;
-    }
-
-    h3 {
-      font-size: 21px;
-    }
-
-    p {
-      margin: 0.85em 0;
-    }
-
-    a {
-      color: #1b6fba;
-      text-decoration-thickness: 1px;
-      text-underline-offset: 3px;
-    }
-
-    img {
-      display: block;
-      max-width: 100%;
-      height: auto;
-      margin: 18px auto;
-      border-radius: 8px;
-      border: 1px solid var(--line);
-    }
-
-    blockquote {
-      margin: 20px 0;
-      padding: 12px 18px;
-      border-left: 4px solid #2f6b5b;
-      background: #eef5f3;
-      color: #47515a;
-    }
-
-    details[data-type="collapsible-block"] {
-      margin: 20px 0;
-      padding-left: 18px;
-      border-left: 2px solid #d7dde5;
-    }
-
-    details[data-type="collapsible-block"] > summary {
-      cursor: default;
-      font-weight: 650;
-      margin-bottom: 10px;
-    }
-
-    details[data-type="collapsible-block"] > div > *:first-child {
-      margin-top: 0;
-    }
-
-    table {
-      width: 100%;
-      margin: 20px 0;
-      border-collapse: collapse;
-      table-layout: fixed;
-    }
-
-    th, td {
-      border: 1px solid var(--line);
-      padding: 9px 11px;
-      vertical-align: top;
-    }
-
-    th {
-      background: #edf3f6;
-      font-weight: 700;
-    }
-
-    td {
-      background: #ffffff;
-    }
-
-    th > *, td > * {
-      margin-bottom: 0;
-    }
-
-    ul, ol {
-      padding-left: 26px;
-    }
-
-    li + li {
-      margin-top: 4px;
-    }
-
-    ul[data-type="taskList"] {
-      padding-left: 0;
-      list-style: none;
-    }
-
-    ul[data-type="taskList"] li {
-      display: flex;
-      gap: 8px;
-      align-items: flex-start;
-    }
-
-    ul[data-type="taskList"] label {
-      padding-top: 2px;
-    }
-
-    ul[data-type="taskList"] div > *:first-child {
-      margin-top: 0;
-    }
-
-    code {
-      padding: 2px 5px;
-      border-radius: 4px;
-      background: #edf2f5;
-      font-family: "Cascadia Code", Consolas, monospace;
-      font-size: 0.92em;
-    }
-
-    pre {
-      overflow-x: auto;
-      margin: 18px 0;
-      padding: 16px 18px;
-      border-radius: 8px;
-      background: var(--code-bg);
-      color: var(--code-ink);
-    }
-
-    pre code {
-      padding: 0;
-      background: transparent;
-      color: inherit;
-    }
-
-    mark {
-      border-radius: 4px;
-      background: #ffe08a;
-      padding: 0 3px;
-    }
-
-    hr {
-      height: 1px;
-      margin: 28px 0;
-      border: 0;
-      background: var(--line);
-    }
-
-    footer {
-      margin-top: 40px;
-      padding-top: 18px;
-      border-top: 1px solid var(--line);
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    @media print {
-      body {
-        background: #fff;
-      }
-
-      .page {
-        width: auto;
-        margin: 0;
-        padding: 0;
-        border: 0;
-        border-radius: 0;
-        box-shadow: none;
-        background: #fff;
-      }
-
-      header {
-        margin-bottom: 10mm;
-        padding-bottom: 6mm;
-      }
-
-      footer {
-        margin-top: 14mm;
-        padding-top: 5mm;
-      }
-    }
-
-    @media (max-width: 640px) {
-      .page {
-        width: 100%;
-        min-height: 100vh;
-        margin: 0;
-        padding: 28px 20px 40px;
-        border: 0;
-        border-radius: 0;
-      }
-    }
-  </style>
-</head>
-<body>
-  <article class="page">
-    <header>
-      <h1>${title}</h1>
-      <div class="meta">
-        ${createdAt ? `<span>创建：${escapeHtml(createdAt)}</span>` : ""}
-        ${updatedAt ? `<span>更新：${escapeHtml(updatedAt)}</span>` : ""}
-        <span>字数：${wordCount}</span>
-        <span>由随记导出</span>
-      </div>
-    </header>
-    <main>
-      ${renderBlockHtml(note.content) || "<p></p>"}
-    </main>
-    <footer>
-      Copyright (c) 2026 Suiji. Exported from 随记.
-    </footer>
-  </article>
-</body>
-</html>`;
 }
 
 async function buildPdfExport(note: NoteRecord): Promise<Uint8Array> {
@@ -1625,7 +843,7 @@ async function readStoredSettings(): Promise<StoredSettings> {
 }
 
 async function readSettings(): Promise<AppSettings> {
-  return publicSettings(await readStoredSettings());
+  return publicSettings(await readStoredSettings(), activePrivacyPin);
 }
 
 async function writeStoredSettings(settings: StoredSettings) {
@@ -1687,7 +905,9 @@ async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<App
     (Boolean(payload.clearPrivacyPin) ||
       (typeof payload.privacyPin === "string" && payload.privacyPin.trim()) ||
       Boolean(payload.encryptLocalData) !== Boolean(current.storageEncrypted));
-  const verifiedCurrentPin = requiresCurrentPin ? resolveVerifiedPin(current, payload.currentPrivacyPin, false) : activePrivacyPin;
+  const verifiedCurrentPin = requiresCurrentPin
+    ? resolveVerifiedPin(current, payload.currentPrivacyPin, activePrivacyPin, false)
+    : activePrivacyPin;
   const nextPin =
     payload.clearPrivacyPin
       ? null
@@ -1749,7 +969,7 @@ async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<App
     openAsHidden: next.startHidden
   });
   refreshIdleLockMonitor();
-  return publicSettings(next);
+  return publicSettings(next, activePrivacyPin);
 }
 
 async function listNotes(): Promise<NoteRecord[]> {
@@ -1794,7 +1014,7 @@ async function exportAllNotesBackup(options?: BackupExportOptions) {
   const notes = await listNotes();
   const settings = await readStoredSettings();
   const encrypted = Boolean(options?.encrypted);
-  const verifiedPin = encrypted ? resolveVerifiedPin(settings, options?.currentPrivacyPin) : null;
+  const verifiedPin = encrypted ? resolveVerifiedPin(settings, options?.currentPrivacyPin, activePrivacyPin) : null;
   const backup: NotesBackup = {
     app: "suiji",
     version: app.getVersion(),
@@ -1869,13 +1089,63 @@ async function restoreNotesBackup(options?: BackupImportOptions): Promise<Restor
 
   const raw = await readImportedBackupText(result.filePaths[0], options?.currentPrivacyPin);
   const backupNotes = parseBackupNotes(JSON.parse(raw));
+  return importSanitizedNotes(backupNotes, "restore");
+}
+
+async function importEncryptedExport(
+  options?: EncryptedExportImportOptions
+): Promise<EncryptedExportImportResult | null> {
+  const result = mainWindow
+    ? await dialog.showOpenDialog(mainWindow, {
+        title: "导入加密导出",
+        properties: ["openFile"],
+        filters: [
+          { name: "Suiji Encrypted Export", extensions: [ENCRYPTED_NOTE_EXPORT_EXTENSION, ENCRYPTED_BATCH_EXPORT_EXTENSION] },
+          { name: "All Files", extensions: ["*"] }
+        ]
+      })
+    : await dialog.showOpenDialog({
+        title: "导入加密导出",
+        properties: ["openFile"],
+        filters: [
+          { name: "Suiji Encrypted Export", extensions: [ENCRYPTED_NOTE_EXPORT_EXTENSION, ENCRYPTED_BATCH_EXPORT_EXTENSION] },
+          { name: "All Files", extensions: ["*"] }
+        ]
+      });
+
+  if (result.canceled || result.filePaths.length === 0) return null;
+
+  const warningOptions: MessageBoxOptions = {
+    type: "warning",
+    buttons: ["继续导入", "取消"],
+    cancelId: 1,
+    defaultId: 1,
+    title: "导入加密导出",
+    message: "导入会把加密导出里的记录写回当前资料库",
+    detail: "如果本地存在相同 ID 的记录，应用会先保留本地历史版本，再用导出内容覆盖。"
+  };
+  const warning = mainWindow
+    ? await dialog.showMessageBox(mainWindow, warningOptions)
+    : await dialog.showMessageBox(warningOptions);
+  if (warning.response !== 0) return null;
+
+  const raw = await readImportedBackupText(result.filePaths[0], options?.currentPrivacyPin);
+  const parsed = parseEncryptedExportBundle(JSON.parse(raw));
+  const imported = await importSanitizedNotes(parsed.notes, parsed.kind === "note-export" ? "import-note" : "import-batch");
+  return {
+    ...imported,
+    kind: parsed.kind
+  };
+}
+
+async function importSanitizedNotes(rawNotes: unknown[], backupPrefix: string): Promise<RestoreResult> {
   let imported = 0;
   let skipped = 0;
 
-  for (const rawNote of backupNotes) {
+  for (const rawNote of rawNotes) {
     try {
       const note = sanitizeNotePayload(rawNote);
-      await backupExistingNote(note.id, "restore");
+      await backupExistingNote(note.id, backupPrefix);
       await writeNoteToDatabase(note, false);
       imported += 1;
     } catch {
@@ -1887,7 +1157,7 @@ async function restoreNotesBackup(options?: BackupImportOptions): Promise<Restor
   await persistNotesDatabase();
   void pruneBackups();
   return {
-    total: backupNotes.length,
+    total: rawNotes.length,
     imported,
     skipped
   };
@@ -2063,7 +1333,7 @@ async function batchExportNotes(rawPayload: BatchExportRequest | BatchExportForm
   const notes = (await listNotes()).filter((note) => !note.trashedAt);
 
   if (encrypted) {
-    const verifiedPin = resolveVerifiedPin(settings, payload.currentPrivacyPin);
+    const verifiedPin = resolveVerifiedPin(settings, payload.currentPrivacyPin, activePrivacyPin);
     const result = mainWindow
       ? await dialog.showSaveDialog(mainWindow, {
           title: "导出加密记录",
@@ -2412,133 +1682,34 @@ function refreshIdleLockMonitor() {
 }
 
 function createApplicationMenu() {
-  const exportNoteMenu: MenuItemConstructorOptions[] = [
-    { label: "导出 PDF", click: () => mainWindow?.webContents.send("menu:export-note", "pdf") },
-    { label: "导出 HTML", click: () => mainWindow?.webContents.send("menu:export-note", "html") },
-    { label: "导出 Markdown", click: () => mainWindow?.webContents.send("menu:export-note", "md") },
-    { label: "导出 TXT", click: () => mainWindow?.webContents.send("menu:export-note", "txt") },
-    { label: "导出 JSON", click: () => mainWindow?.webContents.send("menu:export-note", "json") }
-  ];
-  const batchExportMenu: MenuItemConstructorOptions[] = [
-    { label: "批量导出 Markdown", click: () => mainWindow?.webContents.send("menu:batch-export", "md") },
-    { label: "批量导出 HTML", click: () => mainWindow?.webContents.send("menu:batch-export", "html") },
-    { label: "批量导出 TXT", click: () => mainWindow?.webContents.send("menu:batch-export", "txt") },
-    { label: "批量导出 JSON", click: () => mainWindow?.webContents.send("menu:batch-export", "json") }
-  ];
-  const template: MenuItemConstructorOptions[] = [
-    {
-      label: "文件",
-      submenu: [
-        {
-          label: "新建记录",
-          accelerator: "CommandOrControl+N",
-          click: () => mainWindow?.webContents.send("menu:new-note")
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate(
+      buildApplicationMenuTemplate({
+        appQuit: () => {
+          isQuitting = true;
+          app.quit();
         },
-        {
-          label: "保存",
-          accelerator: "CommandOrControl+S",
-          click: () => mainWindow?.webContents.send("menu:save")
-        },
-        {
-          label: "版本历史",
-          click: () => mainWindow?.webContents.send("menu:history")
-        },
-        {
-          label: "导出当前记录",
-          submenu: exportNoteMenu
-        },
-        {
-          label: "批量导出记录",
-          submenu: batchExportMenu
-        },
-        {
-          label: "设置",
-          click: () => mainWindow?.webContents.send("menu:settings")
-        },
-        { type: "separator" },
-        {
-          label: "隐藏窗口",
-          accelerator: "Escape",
-          click: hideWindow
-        },
-        {
-          label: "退出",
-          accelerator: "CommandOrControl+Q",
-          click: () => {
-            isQuitting = true;
-            app.quit();
+        hideWindow,
+        onAbout: () => {
+          const options = {
+            type: "info",
+            title: "关于随记",
+            message: "随记",
+            detail:
+              `版本：${app.getVersion()}\n版权：Copyright (c) 2026 Suiji. All rights reserved.\n\n随记是快捷呼出的本地自动保存富文本记录工具。可选启用本地加密来保护数据库、历史版本和整库备份；单篇与批量导出可按需选择明文或加密。`
+          } as const;
+          if (mainWindow) {
+            void dialog.showMessageBox(mainWindow, options);
+          } else {
+            void dialog.showMessageBox(options);
           }
-        }
-      ]
-    },
-    {
-      label: "编辑",
-      submenu: [
-        { label: "撤销", role: "undo" },
-        { label: "重做", role: "redo" },
-        { type: "separator" },
-        {
-          label: "查找",
-          accelerator: "CommandOrControl+F",
-          click: () => mainWindow?.webContents.send("menu:find")
         },
-        {
-          label: "替换",
-          accelerator: "CommandOrControl+H",
-          click: () => mainWindow?.webContents.send("menu:replace")
-        },
-        { type: "separator" },
-        { label: "剪切", role: "cut" },
-        { label: "复制", role: "copy" },
-        { label: "粘贴", role: "paste" },
-        { label: "全选", role: "selectAll" }
-      ]
-    },
-    {
-      label: "视图",
-      submenu: [
-        { label: "重新加载", role: "reload" },
-        { label: "开发者工具", role: "toggleDevTools" },
-        { type: "separator" },
-        { label: "实际大小", role: "resetZoom" },
-        { label: "放大", role: "zoomIn" },
-        { label: "缩小", role: "zoomOut" },
-        { type: "separator" },
-        { label: "全屏", role: "togglefullscreen" }
-      ]
-    },
-    {
-      label: "窗口",
-      submenu: [
-        { label: "最小化", role: "minimize" },
-        { label: "关闭", role: "close" }
-      ]
-    },
-    {
-      label: "帮助",
-      submenu: [
-        {
-          label: "关于随记",
-          click: () => {
-            const options = {
-              type: "info",
-              title: "关于随记",
-              message: "随记",
-              detail:
-                `版本：${app.getVersion()}\n版权：Copyright (c) 2026 Suiji. All rights reserved.\n\n随记是快捷呼出的本地自动保存富文本记录工具。可选启用本地加密来保护数据库、历史版本和整库备份；单篇与批量导出可按需选择明文或加密。`
-            } as const;
-            if (mainWindow) {
-              void dialog.showMessageBox(mainWindow, options);
-            } else {
-              void dialog.showMessageBox(options);
-            }
-          }
-        }
-      ]
-    }
-  ];
-
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+        onClipboardNote: createClipboardNote,
+        sendMenu: (channel, payload) => mainWindow?.webContents.send(channel, payload),
+        showWindow
+      })
+    )
+  );
 }
 
 function showWindow() {
@@ -2576,32 +1747,19 @@ function createTray(settings: AppSettings) {
   tray = new Tray(trayIcon.isEmpty() ? assetPath("icon.png") : trayIcon);
   tray.setToolTip(`随记 - ${settings.hotkey} 呼出`);
   tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: "显示随记", click: showWindow },
-      {
-        label: "快速新建",
-        click: () => {
-          showWindow();
-          mainWindow?.webContents.send("menu:new-note");
-        }
-      },
-      {
-        label: "保存剪贴板为记录",
-        click: async () => {
-          const note = await createClipboardNote();
-          showWindow();
-          mainWindow?.webContents.send("notes:reload", note.id);
-        }
-      },
-      { type: "separator" },
-      {
-        label: "退出",
-        click: () => {
+    Menu.buildFromTemplate(
+      buildTrayMenuTemplate(settings, {
+        appQuit: () => {
           isQuitting = true;
           app.quit();
-        }
-      }
-    ])
+        },
+        hideWindow,
+        onAbout: () => undefined,
+        onClipboardNote: createClipboardNote,
+        sendMenu: (channel, payload) => mainWindow?.webContents.send(channel, payload),
+        showWindow
+      })
+    )
   );
   tray.on("double-click", showWindow);
 }
@@ -2623,6 +1781,9 @@ function registerIpc() {
   );
   ipcMain.handle("notes:backup-all", (_event, options?: BackupExportOptions) => exportAllNotesBackup(options));
   ipcMain.handle("notes:restore-backup", (_event, options?: BackupImportOptions) => restoreNotesBackup(options));
+  ipcMain.handle("notes:import-encrypted-export", (_event, options?: EncryptedExportImportOptions) =>
+    importEncryptedExport(options)
+  );
   ipcMain.handle("notes:import-markdown", importMarkdownNotes);
   ipcMain.handle("notes:batch-export", (_event, payload: BatchExportRequest | BatchExportFormat) =>
     batchExportNotes(payload)
@@ -2687,7 +1848,7 @@ function registerIpc() {
     }
 
     if (encrypted) {
-      const verifiedPin = resolveVerifiedPin(settings, payload.currentPrivacyPin);
+      const verifiedPin = resolveVerifiedPin(settings, payload.currentPrivacyPin, activePrivacyPin);
       await writeEncryptedBackupExport(
         result.filePath,
         {

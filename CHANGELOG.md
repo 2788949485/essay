@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.9.8 - 2026-06-22
+
+- Refined the in-editor find panel into a clearer floating layout with grouped search, replace, navigation, and close actions so the popup reads more like the rest of the app's layered controls.
+- Fixed find next/previous navigation so the editor content area now smoothly scrolls to the active match instead of only changing the text selection.
+
+## 0.9.7 - 2026-06-22
+
+- Extracted application menu and tray menu construction into `src/main/app-shell.ts`, so shell-level actions are no longer embedded directly inside the main process file.
+- Added tests for the new app-shell templates to keep menu and tray entry structure stable during later UI and workflow changes.
+
+## 0.9.6 - 2026-06-22
+
+- Split the oversized main-process file by extracting security/encryption helpers into `src/main/security.ts`, HTML export rendering into `src/main/html-export.ts`, and note transfer helpers into `src/main/note-transfer.ts`.
+- Kept the existing import/export and privacy behavior unchanged while moving those domains behind clearer module boundaries for later maintenance.
+- Expanded the new `vitest` baseline with coverage for security helpers and note transfer parsing utilities.
+
+## 0.9.5 - 2026-06-22
+
+- Added encrypted export import support so `.suiji-note` and `.suiji-export` files can be brought back into the local library instead of being write-only.
+- Added a dedicated “导入加密” action in the settings data tools and unified encrypted-file PIN error messages across backup restore and encrypted export import.
+- Added a first engineering baseline with `vitest` test scripts and parser coverage for encrypted export bundle detection.
+
 ## 0.9.4 - 2026-06-22
 
 - Fixed the settings PIN verification regression caused by font preset changes calling `settings:update` immediately while the settings dialog still had unsaved security drafts.

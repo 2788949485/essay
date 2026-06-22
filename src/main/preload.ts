@@ -6,6 +6,8 @@ import type {
   BackupEntry,
   BatchExportFormat,
   BatchExportRequest,
+  EncryptedExportImportOptions,
+  EncryptedExportImportResult,
   ExportPayload,
   NoteRecord,
   RestoreResult,
@@ -29,6 +31,8 @@ const api = {
   backupAllNotes: (options: BackupExportOptions) => ipcRenderer.invoke("notes:backup-all", options) as Promise<string | null>,
   restoreNotesBackup: (options: BackupImportOptions) =>
     ipcRenderer.invoke("notes:restore-backup", options) as Promise<RestoreResult | null>,
+  importEncryptedExport: (options: EncryptedExportImportOptions) =>
+    ipcRenderer.invoke("notes:import-encrypted-export", options) as Promise<EncryptedExportImportResult | null>,
   importMarkdownNotes: () => ipcRenderer.invoke("notes:import-markdown") as Promise<NoteRecord[]>,
   batchExportNotes: (payload: BatchExportRequest) =>
     ipcRenderer.invoke("notes:batch-export", payload) as Promise<string | { directory: string; count: number } | null>,

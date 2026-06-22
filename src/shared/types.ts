@@ -66,6 +66,10 @@ export type BackupImportOptions = {
   currentPrivacyPin?: string;
 };
 
+export type EncryptedExportImportOptions = {
+  currentPrivacyPin?: string;
+};
+
 export type BatchExportFormat = "html" | "json" | "txt" | "md";
 
 export type BatchExportRequest = {
@@ -92,6 +96,10 @@ export type RestoreResult = {
   total: number;
   imported: number;
   skipped: number;
+};
+
+export type EncryptedExportImportResult = RestoreResult & {
+  kind: "note-export" | "batch-export";
 };
 
 export type BackupEntry = {
