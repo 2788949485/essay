@@ -22,13 +22,12 @@ import {
   DEFAULT_HOTKEY,
   DEFAULT_SETTINGS,
   DEFAULT_BACKUP_HISTORY_LIMIT,
-  CURRENT_PIN_KDF_PARAMS,
   MAX_BACKUP_HISTORY_LIMIT,
   MAX_PIN_LENGTH,
   StoredSettings,
   decodeStoredBytes,
   encodeStoredBytes,
-  hashPinScrypt,
+  hashPin,
   isStorageEncryptionEnabled,
   publicSettings,
   resolveVerifiedPin,
@@ -875,6 +874,21 @@ async function writeStoredSettings(settings: StoredSettings) {
   await atomicWriteFile(settingsPath, JSON.stringify(settingsCache, null, 2));
 }
 
+function hasFastPinHash(settings: StoredSettings) {
+  return Boolean(settings.privacyPinHash && settings.privacyPinSalt && !settings.privacyPinKdf);
+}
+
+async function refreshPinHashAfterUnlock(settings: StoredSettings, pin: string) {
+  if (!settings.privacyPinHash || !settings.privacyPinSalt || hasFastPinHash(settings)) return settings;
+  const next: StoredSettings = {
+    ...settings,
+    privacyPinKdf: null,
+    privacyPinHash: hashPin(pin, settings.privacyPinSalt)
+  };
+  await writeStoredSettings(next);
+  return next;
+}
+
 async function rewriteStoredJsonFiles(directory: string, currentPin: string | null, nextSettings: StoredSettings, nextPin: string | null) {
   const entries = await fs.readdir(directory, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
@@ -964,8 +978,8 @@ async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<App
     const pin = payload.privacyPin.trim().slice(0, MAX_PIN_LENGTH);
     const salt = randomBytes(16).toString("hex");
     next.privacyPinSalt = salt;
-    next.privacyPinKdf = CURRENT_PIN_KDF_PARAMS;
-    next.privacyPinHash = hashPinScrypt(pin, salt, CURRENT_PIN_KDF_PARAMS);
+    next.privacyPinKdf = null;
+    next.privacyPinHash = hashPin(pin, salt);
   }
 
   if (next.storageEncrypted && !(next.privacyPinHash && next.privacyPinSalt && nextPin)) {
@@ -1671,7 +1685,6 @@ function createWindow() {
 
   mainWindow.on("minimize", () => {
     void lockContentForPrivacy();
-    void persistNotesDatabase();
   });
 
   const devServer = process.env.VITE_DEV_SERVER_URL;
@@ -1689,7 +1702,7 @@ function dispatchPrivacyLock() {
 async function lockContentForPrivacy(force = false) {
   const settings = await readStoredSettings();
   if (!force && !settings.lockOnHide) return;
-  if (isStorageEncryptionEnabled(settings)) {
+  if (force && isStorageEncryptionEnabled(settings)) {
     await persistNotesDatabase(settings);
     activePrivacyPin = null;
     if (notesDb) {
@@ -1768,7 +1781,6 @@ function showWindow() {
 
 function hideWindow() {
   void lockContentForPrivacy();
-  void persistNotesDatabase();
   mainWindow?.hide();
 }
 
@@ -1938,14 +1950,21 @@ function registerIpc() {
     return ok;
   });
   ipcMain.handle("privacy:verify-pin", async (_event, pin: string) => {
-    const settings = await readStoredSettings();
     const candidate = coerceString(pin, "", MAX_PIN_LENGTH);
-    const ok = verifyPin(settings, candidate);
+    if (activePrivacyPin && candidate && activePrivacyPin === candidate && notesDb) {
+      idleLockTriggered = false;
+      return true;
+    }
+
+    const settings = await readStoredSettings();
+    const sessionPinMatches = Boolean(activePrivacyPin && candidate && activePrivacyPin === candidate);
+    const ok = sessionPinMatches || verifyPin(settings, candidate);
     if (!ok) return false;
+    const effectiveSettings = sessionPinMatches ? settings : await refreshPinHashAfterUnlock(settings, candidate);
     activePrivacyPin = candidate;
     idleLockTriggered = false;
-    if (isStorageEncryptionEnabled(settings) && !notesDb) {
-      await initializeNotesDatabase(settings);
+    if (isStorageEncryptionEnabled(effectiveSettings) && !notesDb) {
+      await initializeNotesDatabase(effectiveSettings);
     }
     return true;
   });

@@ -5,12 +5,31 @@ import {
   DEFAULT_SETTINGS,
   decodeStoredBytes,
   encodeStoredBytes,
+  hashPin,
   hashPinScrypt,
   resolveVerifiedPin,
   verifyPin
 } from "../src/main/security";
 
 describe("security helpers", () => {
+  it("verifies fast PIN hashes for content protection", () => {
+    const salt = "salt-fast";
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      privacyPinSalt: salt,
+      privacyPinHash: hashPin("2468", salt),
+      privacyPinKdf: null,
+      storageEncrypted: true
+    };
+
+    expect(verifyPin(settings, "2468")).toBe(true);
+    expect(verifyPin(settings, "0000")).toBe(false);
+  });
+
+  it("keeps PIN verification lighter than storage encryption", () => {
+    expect(CURRENT_PIN_KDF_PARAMS.N).toBeLessThan(CURRENT_STORAGE_KDF_PARAMS.N);
+  });
+
   it("加密内容可以正确往返解密", () => {
     const pin = "123456";
     const salt = "abcdef1234567890";

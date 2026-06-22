@@ -56,7 +56,13 @@ export const LEGACY_PIN_KDF_PARAMS: ScryptKdfParams = {
   maxmem: 64 * 1024 * 1024
 };
 
-export const CURRENT_PIN_KDF_PARAMS = CURRENT_STORAGE_KDF_PARAMS;
+export const CURRENT_PIN_KDF_PARAMS: ScryptKdfParams = {
+  name: "scrypt",
+  N: 1 << 15,
+  r: 8,
+  p: 1,
+  maxmem: 128 * 1024 * 1024
+};
 
 export const DEFAULT_SETTINGS: StoredSettings = {
   hotkey: DEFAULT_HOTKEY,
@@ -82,7 +88,7 @@ function coerceString(value: unknown, fallback = "", maxLength = MAX_TEXT_FIELD_
   return value.slice(0, maxLength);
 }
 
-function hashPin(pin: string, salt: string) {
+export function hashPin(pin: string, salt: string) {
   return createHash("sha256").update(`${salt}:${pin}`).digest("hex");
 }
 

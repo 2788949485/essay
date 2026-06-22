@@ -775,8 +775,10 @@ export default function App() {
   const [currentPrivacyPinDraft, setCurrentPrivacyPinDraft] = useState("");
   const [privacyPinDraft, setPrivacyPinDraft] = useState("");
   const [clearPrivacyPin, setClearPrivacyPin] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
   const [unlockPin, setUnlockPin] = useState("");
   const [unlockError, setUnlockError] = useState("");
+  const [unlockBusy, setUnlockBusy] = useState(false);
   const [findOpen, setFindOpen] = useState(false);
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [findQuery, setFindQuery] = useState("");
@@ -1699,9 +1701,21 @@ export default function App() {
   }
 
   async function handleSettingsSave() {
+    if (settingsSaving) return;
+    const currentSettings = settings ?? DEFAULT_APP_SETTINGS;
+    const payload = settingsPayload(currentSettings, hotkeyDraft);
+    const rewritesLocalData =
+      payload.encryptLocalData !== currentSettings.storageEncrypted ||
+      payload.backupHistoryEnabled !== currentSettings.backupHistoryEnabled ||
+      payload.backupHistoryLimit !== currentSettings.backupHistoryLimit ||
+      Boolean(privacyPinDraft.trim()) ||
+      clearPrivacyPin;
     try {
+      setSettingsSaving(true);
+      setDataActionStatus(rewritesLocalData ? "正在重写本地数据，请稍候..." : "正在保存设置...");
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
       const next = await window.suiji.updateSettings({
-        ...settingsPayload(settings ?? DEFAULT_APP_SETTINGS, hotkeyDraft),
+        ...payload,
         currentPrivacyPin: currentPrivacyPinDraft.trim() || undefined,
         privacyPin: privacyPinDraft.trim() || undefined,
         clearPrivacyPin
@@ -1719,6 +1733,8 @@ export default function App() {
       }
     } catch (error) {
       setDataActionStatus(error instanceof Error ? error.message : "保存设置失败");
+    } finally {
+      setSettingsSaving(false);
     }
   }
 
@@ -1895,6 +1911,7 @@ export default function App() {
   }
 
   async function handleUnlock() {
+    if (unlockBusy) return;
     if (!settings?.hasPrivacyPin) {
       setPrivacyLocked(false);
       setUnlockError("");
@@ -1902,16 +1919,25 @@ export default function App() {
       return;
     }
 
-    const ok = await window.suiji.verifyPrivacyPin(unlockPin);
-    if (!ok) {
-      setUnlockError("密码不正确");
-      return;
+    try {
+      setUnlockBusy(true);
+      setUnlockError("");
+      const ok = await window.suiji.verifyPrivacyPin(unlockPin);
+      if (!ok) {
+        setUnlockError("密码不正确");
+        return;
+      }
+      if (settings.storageEncrypted && !settings.storageUnlocked) {
+        await loadNotes();
+      } else {
+        setSettings((current) => (current ? { ...current, storageUnlocked: true } : current));
+      }
+      setPrivacyLocked(false);
+      setUnlockPin("");
+      focusEditorSoon();
+    } finally {
+      setUnlockBusy(false);
     }
-    await loadNotes();
-    setPrivacyLocked(false);
-    setUnlockPin("");
-    setUnlockError("");
-    focusEditorSoon();
   }
 
   function handleLink() {
@@ -3058,14 +3084,16 @@ export default function App() {
       ) : null}
 
       {settingsOpen ? (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => setSettingsOpen(false)}>
-          <div className="modal settings-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => {
+          if (!settingsSaving) setSettingsOpen(false);
+        }}>
+          <div className="modal settings-modal" role="dialog" aria-modal="true" aria-busy={settingsSaving} onMouseDown={(event) => event.stopPropagation()}>
             <div className="modal-header">
               <span className="modal-kicker">偏好与数据</span>
               <h2>设置</h2>
               <p className="modal-description">统一管理快捷键、隐私保护和本地数据目录。</p>
             </div>
-            <div className="settings-layout">
+            <fieldset className="settings-layout" disabled={settingsSaving}>
               <section className="settings-group" aria-label="基础偏好">
                 <div className="settings-group-header">
                   <div>
@@ -3322,17 +3350,22 @@ export default function App() {
                         修改目录
                       </button>
                     </div>
-                    {dataActionStatus ? <p className="settings-status-text">{dataActionStatus}</p> : null}
+                    {dataActionStatus && !settingsSaving ? <p className="settings-status-text">{dataActionStatus}</p> : null}
                   </section>
                 </div>
               </section>
-            </div>
+            </fieldset>
+            {settingsSaving ? (
+              <p className="settings-status-text settings-save-status is-busy" role="status">
+                {dataActionStatus || "正在保存设置..."}
+              </p>
+            ) : null}
             <div className="modal-actions">
-              <button type="button" onClick={() => setSettingsOpen(false)}>
+              <button type="button" onClick={() => setSettingsOpen(false)} disabled={settingsSaving}>
                 取消
               </button>
-              <button type="button" className="primary" onClick={() => void handleSettingsSave()}>
-                保存
+              <button type="button" className="primary" onClick={() => void handleSettingsSave()} disabled={settingsSaving}>
+                {settingsSaving ? "保存中..." : "保存"}
               </button>
             </div>
           </div>
@@ -3409,6 +3442,7 @@ export default function App() {
                 value={unlockPin}
                 autoFocus
                 placeholder="输入隐私密码"
+                disabled={unlockBusy}
                 onChange={(event) => {
                   setUnlockPin(event.target.value);
                   setUnlockError("");
@@ -3419,8 +3453,8 @@ export default function App() {
               />
             ) : null}
             {unlockError ? <span className="privacy-error">{unlockError}</span> : null}
-            <button type="button" onClick={() => void handleUnlock()}>
-              解锁
+            <button type="button" onClick={() => void handleUnlock()} disabled={unlockBusy}>
+              {unlockBusy ? "解锁中..." : "解锁"}
             </button>
           </div>
         </div>

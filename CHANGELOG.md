@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.9.22 - 2026-06-22
+
+- Simplified content-protection PIN checks to use a fast session-oriented hash so unlocking the privacy overlay no longer waits on scrypt.
+- Kept legacy scrypt PIN hashes readable and migrated them to the fast hash after a successful unlock, while leaving encrypted database and export KDF strength unchanged.
+
+## 0.9.21 - 2026-06-22
+
+- Removed the extra encrypted database flush from normal hide and minimize actions so content-protection unlock can return immediately instead of waiting behind a background encrypted write.
+- Kept database flushing for explicit saves, app quit, and strong privacy locks while trimming the lock-screen unlock path.
+
+## 0.9.20 - 2026-06-22
+
+- Made normal hide/minimize content protection unlock instantly by keeping the already verified encrypted-session state alive, while still clearing the encrypted session for idle timeout, system lock, and suspend events.
+
+## 0.9.19 - 2026-06-22
+
+- Split interactive PIN verification from storage encryption strength so content-protection unlocks no longer pay the full database-encryption KDF cost during an already verified session.
+- Added an explicit "unlocking" state on the privacy lock screen and avoided reloading notes when the local encrypted store is not locked.
+
+## 0.9.18 - 2026-06-22
+
+- Removed the duplicate settings-save status message so encryption changes show one clear rewriting-data prompt instead of two stacked hints.
+
+## 0.9.17 - 2026-06-22
+
+- Added a visible busy state while saving settings that rewrite local data, including disabling the settings form, preventing accidental modal close, and showing a clear "rewriting local data" status for encryption changes.
+
 ## 0.9.16 - 2026-06-22
 
 - Raised the storage encryption scrypt work factor for newly encrypted local data and encrypted exports from `N=2^15` to `N=2^18`, while keeping older encrypted files readable through per-file KDF metadata.

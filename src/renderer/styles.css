@@ -2884,6 +2884,10 @@ input[type="range"] {
 .settings-layout {
   display: grid;
   gap: 14px;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
 }
 
 .settings-group {
@@ -3022,6 +3026,39 @@ input[type="range"] {
   color: var(--subtle-text);
   font-size: 12px;
   line-height: 1.6;
+}
+
+.settings-save-status {
+  margin: 2px 2px -8px;
+  border: 1px solid color-mix(in srgb, var(--accent-color) 18%, var(--line-soft));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent-color) 7%, transparent);
+  padding: 9px 12px;
+}
+
+.settings-save-status.is-busy::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--accent-color);
+  animation: settingsBusyPulse 1s ease-in-out infinite;
+  vertical-align: 1px;
+}
+
+@keyframes settingsBusyPulse {
+  0%,
+  100% {
+    opacity: 0.36;
+    transform: scale(0.72);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .link-field {
