@@ -2168,7 +2168,6 @@ input[type="range"] {
   transition:
     background-color var(--motion-base) var(--ease-smooth),
     box-shadow var(--motion-base) var(--ease-smooth),
-    transform var(--motion-fast) ease,
     border-color var(--motion-fast) ease;
 }
 
@@ -2177,7 +2176,6 @@ input[type="range"] {
   box-shadow:
     inset 2px 0 0 color-mix(in srgb, var(--accent-color) 26%, transparent),
     inset 0 0 0 1px color-mix(in srgb, var(--accent-color) 8%, transparent);
-  transform: translateY(-1px);
 }
 
 .editor-surface.ProseMirror-focused .editor-interactive-block.is-current-block {

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.23 - 2026-06-23
+
+- Fixed text drag selection in the editor by pausing hover-block DOM updates while the mouse button is held down and removing hover translation from normal text blocks.
+
 ## 0.9.22 - 2026-06-22
 
 - Simplified content-protection PIN checks to use a fast session-oriented hash so unlocking the privacy overlay no longer waits on scrypt.

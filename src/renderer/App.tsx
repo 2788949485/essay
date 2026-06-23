@@ -2660,7 +2660,10 @@ export default function App() {
             <div
               ref={editorWrapRef}
               className="editor-wrap"
-              onMouseMove={(event) => updateHoveredEditorBlock(event.target)}
+              onMouseMove={(event) => {
+                if (event.buttons !== 0) return;
+                updateHoveredEditorBlock(event.target);
+              }}
               onMouseLeave={() => setHoveredEditorBlock(null)}
               onMouseDown={(event) => {
                 if (event.target === event.currentTarget) {
