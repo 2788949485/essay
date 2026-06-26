@@ -1,4 +1,6 @@
 import { buildHtmlExport } from "./html-export.js";
+import type { JSONContent } from "@tiptap/react";
+import MarkdownIt from "markdown-it";
 import { toMarkdown } from "../shared/markdown.js";
 import type { BackupEntry, ExportPayload, NoteRecord, NotesBackup } from "../shared/types.js";
 
@@ -47,137 +49,336 @@ export function plainDoc(text: string): NoteRecord["content"] {
   };
 }
 
-function splitMarkdownTableRow(line: string) {
-  return line
-    .trim()
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((cell) => cell.trim());
+type MarkdownToken = {
+  type: string;
+  tag: string;
+  content: string;
+  info: string;
+  markup: string;
+  attrs?: Array<[string, string]> | null;
+  children?: MarkdownToken[] | null;
+  attrGet?: (name: string) => string | null;
+};
+
+const markdownParser = new MarkdownIt({
+  html: false,
+  linkify: true,
+  typographer: false
+});
+
+function tokenAttr(token: MarkdownToken, name: string) {
+  return token.attrGet?.(name) ?? token.attrs?.find(([key]) => key === name)?.[1] ?? null;
 }
 
-function isMarkdownTableSeparator(line: string) {
-  const cells = splitMarkdownTableRow(line);
-  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+function cloneMarks(marks: JSONContent["marks"]) {
+  return marks?.length ? marks.map((mark) => ({ ...mark, attrs: mark.attrs ? { ...mark.attrs } : undefined })) : undefined;
 }
 
-function tableCellNode(type: "tableHeader" | "tableCell", text: string) {
+function pushTextNode(target: JSONContent[], text: string, marks: JSONContent["marks"]) {
+  if (!text) return;
+  target.push({
+    type: "text",
+    text,
+    marks: cloneMarks(marks)
+  });
+}
+
+function parseInlineTokens(tokens: MarkdownToken[] = []) {
+  const nodes: JSONContent[] = [];
+  const marks: NonNullable<JSONContent["marks"]> = [];
+
+  for (const token of tokens) {
+    switch (token.type) {
+      case "text":
+        pushTextNode(nodes, token.content, marks);
+        break;
+      case "softbreak":
+      case "hardbreak":
+        nodes.push({ type: "hardBreak" });
+        break;
+      case "code_inline":
+        pushTextNode(nodes, token.content, [...marks, { type: "code" }]);
+        break;
+      case "strong_open":
+        marks.push({ type: "bold" });
+        break;
+      case "strong_close":
+        marks.pop();
+        break;
+      case "em_open":
+        marks.push({ type: "italic" });
+        break;
+      case "em_close":
+        marks.pop();
+        break;
+      case "s_open":
+        marks.push({ type: "strike" });
+        break;
+      case "s_close":
+        marks.pop();
+        break;
+      case "link_open":
+        marks.push({
+          type: "link",
+          attrs: { href: tokenAttr(token, "href") ?? "" }
+        });
+        break;
+      case "link_close":
+        marks.pop();
+        break;
+      case "image":
+        nodes.push({
+          type: "image",
+          attrs: {
+            src: tokenAttr(token, "src") ?? "",
+            alt: token.content || tokenAttr(token, "alt") || "",
+            title: tokenAttr(token, "title") ?? ""
+          }
+        });
+        break;
+      default:
+        break;
+    }
+  }
+
+  return nodes;
+}
+
+function filterInlineCellContent(nodes: JSONContent[]) {
+  return nodes.filter((node) => node.type !== "image");
+}
+
+function paragraphBlocksFromInline(tokens: MarkdownToken[] = []) {
+  const inlineNodes = parseInlineTokens(tokens);
+  const blocks: JSONContent[] = [];
+  let paragraphContent: JSONContent[] = [];
+
+  const flushParagraph = () => {
+    if (!paragraphContent.length) return;
+    blocks.push({
+      type: "paragraph",
+      content: paragraphContent
+    });
+    paragraphContent = [];
+  };
+
+  for (const node of inlineNodes) {
+    if (node.type === "image") {
+      flushParagraph();
+      blocks.push(node);
+      continue;
+    }
+    paragraphContent.push(node);
+  }
+
+  flushParagraph();
+  return blocks.length ? blocks : [{ type: "paragraph" }];
+}
+
+function consumeTaskMarker(paragraph: JSONContent) {
+  const firstTextNode = paragraph.content?.find((node) => node.type === "text" && typeof node.text === "string");
+  if (!firstTextNode?.text) return null;
+  const match = firstTextNode.text.match(/^\[([ xX])\]\s+/);
+  if (!match) return null;
+  firstTextNode.text = firstTextNode.text.slice(match[0].length);
+  if (!firstTextNode.text) {
+    paragraph.content = paragraph.content?.filter((node) => node !== firstTextNode);
+  }
+  return { checked: match[1].toLowerCase() === "x" };
+}
+
+function parseTable(tokens: MarkdownToken[], startIndex: number) {
+  const rows: JSONContent[] = [];
+  let index = startIndex + 1;
+  let currentRow: JSONContent | null = null;
+  let currentCellType: "tableHeader" | "tableCell" | null = null;
+
+  while (index < tokens.length) {
+    const token = tokens[index];
+    if (token.type === "table_close") {
+      return {
+        node: {
+          type: "table",
+          content: rows
+        },
+        nextIndex: index + 1
+      };
+    }
+
+    if (token.type === "tr_open") {
+      currentRow = { type: "tableRow", content: [] };
+      index += 1;
+      continue;
+    }
+
+    if (token.type === "tr_close") {
+      if (currentRow) rows.push(currentRow);
+      currentRow = null;
+      index += 1;
+      continue;
+    }
+
+    if (token.type === "th_open" || token.type === "td_open") {
+      currentCellType = token.type === "th_open" ? "tableHeader" : "tableCell";
+      index += 1;
+      continue;
+    }
+
+    if ((token.type === "th_close" || token.type === "td_close") && currentCellType) {
+      currentCellType = null;
+      index += 1;
+      continue;
+    }
+
+    if (token.type === "inline" && currentRow && currentCellType) {
+      currentRow.content = currentRow.content ?? [];
+      currentRow.content.push({
+        type: currentCellType,
+        content: filterInlineCellContent(parseInlineTokens(token.children ?? []))
+      });
+      index += 1;
+      continue;
+    }
+
+    index += 1;
+  }
+
   return {
-    type,
-    content: text ? [{ type: "text", text }] : undefined
+    node: {
+      type: "table",
+      content: rows
+    },
+    nextIndex: index
   };
 }
 
-function markdownTableToDocRows(lines: string[]) {
-  const rows = lines.map(splitMarkdownTableRow).filter((cells) => cells.length > 0);
-  if (rows.length < 2 || !isMarkdownTableSeparator(lines[1] || "")) return null;
-  const header = rows[0];
-  const body = rows.slice(2);
-  return [
-    {
-      type: "tableRow",
-      content: header.map((cell) => tableCellNode("tableHeader", cell))
-    },
-    ...body.map((cells) => ({
-      type: "tableRow",
-      content: cells.map((cell) => tableCellNode("tableCell", cell))
-    }))
-  ];
+function parseBlocks(tokens: MarkdownToken[], startIndex = 0, stopType?: string): { nodes: JSONContent[]; nextIndex: number } {
+  const nodes: JSONContent[] = [];
+  let index = startIndex;
+
+  while (index < tokens.length) {
+    const token = tokens[index];
+    if (stopType && token.type === stopType) {
+      return { nodes, nextIndex: index + 1 };
+    }
+
+    switch (token.type) {
+      case "heading_open": {
+        const level = Number(token.tag.replace(/^h/, "")) || 1;
+        const inline = tokens[index + 1];
+        nodes.push({
+          type: "heading",
+          attrs: { level },
+          content: inline?.type === "inline" ? parseInlineTokens(inline.children ?? []) : undefined
+        });
+        index += 3;
+        break;
+      }
+      case "paragraph_open": {
+        const inline = tokens[index + 1];
+        nodes.push(...paragraphBlocksFromInline(inline?.type === "inline" ? inline.children ?? [] : []));
+        index += 3;
+        break;
+      }
+      case "blockquote_open": {
+        const result = parseBlocks(tokens, index + 1, "blockquote_close");
+        nodes.push({
+          type: "blockquote",
+          content: result.nodes
+        });
+        index = result.nextIndex;
+        break;
+      }
+      case "bullet_list_open":
+      case "ordered_list_open": {
+        const listItems: JSONContent[] = [];
+        const closeType = token.type === "bullet_list_open" ? "bullet_list_close" : "ordered_list_close";
+        const orderedStart = Number(tokenAttr(token, "start") ?? 1) || 1;
+        index += 1;
+        while (index < tokens.length && tokens[index].type !== closeType) {
+          if (tokens[index].type !== "list_item_open") {
+            index += 1;
+            continue;
+          }
+          const itemResult = parseBlocks(tokens, index + 1, "list_item_close");
+          listItems.push({
+            type: "listItem",
+            content: itemResult.nodes
+          });
+          index = itemResult.nextIndex;
+        }
+        index += 1;
+
+        if (token.type === "bullet_list_open") {
+          const taskItems = listItems.map((item) => {
+            const firstParagraph = item.content?.find((node) => node.type === "paragraph");
+            const marker = firstParagraph ? consumeTaskMarker(firstParagraph) : null;
+            return marker
+              ? {
+                  type: "taskItem",
+                  attrs: { checked: marker.checked },
+                  content: item.content
+                }
+              : null;
+          });
+
+          if (taskItems.every(Boolean) && taskItems.length) {
+            nodes.push({
+              type: "taskList",
+              content: taskItems as JSONContent[]
+            });
+            break;
+          }
+        }
+
+        nodes.push(
+          token.type === "ordered_list_open"
+            ? {
+                type: "orderedList",
+                attrs: { start: orderedStart },
+                content: listItems
+              }
+            : {
+                type: "bulletList",
+                content: listItems
+              }
+        );
+        break;
+      }
+      case "fence":
+      case "code_block":
+        nodes.push({
+          type: "codeBlock",
+          content: token.content ? [{ type: "text", text: token.content.replace(/\n$/, "") }] : undefined
+        });
+        index += 1;
+        break;
+      case "hr":
+        nodes.push({ type: "horizontalRule" });
+        index += 1;
+        break;
+      case "table_open": {
+        const result = parseTable(tokens, index);
+        nodes.push(result.node);
+        index = result.nextIndex;
+        break;
+      }
+      default:
+        index += 1;
+        break;
+    }
+  }
+
+  return { nodes, nextIndex: index };
 }
 
 export function markdownToDoc(markdown: string): NoteRecord["content"] {
-  const lines = markdown.split(/\r?\n/);
-  const blocks: NonNullable<NoteRecord["content"]["content"]> = [];
-  let pendingParagraph: string[] = [];
-  let tableLines: string[] = [];
-
-  const flushParagraph = () => {
-    if (pendingParagraph.length === 0) return;
-    const text = pendingParagraph.join(" ").trim();
-    blocks.push({
-      type: "paragraph",
-      content: text ? [{ type: "text", text }] : undefined
-    });
-    pendingParagraph = [];
+  const tokens = markdownParser.parse(markdown, {}) as MarkdownToken[];
+  const content = parseBlocks(tokens).nodes;
+  return {
+    type: "doc",
+    content: content.length ? content : [{ type: "paragraph" }]
   };
-
-  const flushTable = () => {
-    if (tableLines.length === 0) return;
-    const rows = markdownTableToDocRows(tableLines);
-    if (rows) {
-      flushParagraph();
-      blocks.push({
-        type: "table",
-        content: rows
-      });
-    } else {
-      pendingParagraph.push(...tableLines);
-    }
-    tableLines = [];
-  };
-
-  for (const rawLine of lines) {
-    const line = rawLine.trimEnd();
-    if (!line.trim()) {
-      flushTable();
-      flushParagraph();
-      continue;
-    }
-
-    if (line.includes("|")) {
-      tableLines.push(line);
-      continue;
-    }
-    flushTable();
-
-    const heading = line.match(/^(#{1,3})\s+(.+)$/);
-    if (heading) {
-      flushParagraph();
-      blocks.push({
-        type: "heading",
-        attrs: { level: heading[1].length },
-        content: [{ type: "text", text: heading[2].trim() }]
-      });
-      continue;
-    }
-
-    const bullet = line.match(/^[-*+]\s+(.+)$/);
-    if (bullet) {
-      flushParagraph();
-      blocks.push({
-        type: "bulletList",
-        content: [
-          {
-            type: "listItem",
-            content: [{ type: "paragraph", content: [{ type: "text", text: bullet[1].trim() }] }]
-          }
-        ]
-      });
-      continue;
-    }
-
-    const ordered = line.match(/^\d+[.)]\s+(.+)$/);
-    if (ordered) {
-      flushParagraph();
-      blocks.push({
-        type: "orderedList",
-        attrs: { start: 1 },
-        content: [
-          {
-            type: "listItem",
-            content: [{ type: "paragraph", content: [{ type: "text", text: ordered[1].trim() }] }]
-          }
-        ]
-      });
-      continue;
-    }
-
-    pendingParagraph.push(line.trim());
-  }
-
-  flushTable();
-  flushParagraph();
-  return { type: "doc", content: blocks.length ? blocks : [{ type: "paragraph" }] };
 }
 
 export function parseBackupNotes(raw: unknown): unknown[] {

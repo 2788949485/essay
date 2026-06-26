@@ -8,6 +8,56 @@ describe("note transfer helpers", () => {
     expect(doc.content?.[1]?.type).toBe("bulletList");
   });
 
+  it("markdown 可以覆盖常见块级和行内格式", () => {
+    const doc = markdownToDoc(
+      [
+        "# 标题",
+        "",
+        "> 引用",
+        "",
+        "- [x] 已完成",
+        "- [ ] 待办",
+        "",
+        "1. 第一项",
+        "   - 子项",
+        "",
+        "```bash",
+        "dir",
+        "```",
+        "",
+        "---",
+        "",
+        "![封面](https://example.com/a.png \"图\")",
+        "",
+        "| 列1 | 列2 |",
+        "| --- | --- |",
+        "| A | B |",
+        "",
+        "**加粗** *斜体* ~~删除线~~ `代码` [链接](https://example.com)"
+      ].join("\n")
+    );
+
+    expect(doc.content?.[0]?.type).toBe("heading");
+    expect(doc.content?.[1]?.type).toBe("blockquote");
+    expect(doc.content?.[2]?.type).toBe("taskList");
+    expect(doc.content?.[3]?.type).toBe("orderedList");
+    expect(doc.content?.[3]?.content?.[0]?.content?.[1]?.type).toBe("bulletList");
+    expect(doc.content?.[4]?.type).toBe("codeBlock");
+    expect(doc.content?.[4]?.content?.[0]?.text).toBe("dir");
+    expect(doc.content?.[5]?.type).toBe("horizontalRule");
+    expect(doc.content?.[6]?.type).toBe("image");
+    expect(doc.content?.[6]?.attrs?.src).toBe("https://example.com/a.png");
+    expect(doc.content?.[7]?.type).toBe("table");
+
+    const paragraph = doc.content?.[8];
+    expect(paragraph?.type).toBe("paragraph");
+    expect(paragraph?.content?.[0]?.marks?.[0]?.type).toBe("bold");
+    expect(paragraph?.content?.[2]?.marks?.[0]?.type).toBe("italic");
+    expect(paragraph?.content?.[4]?.marks?.[0]?.type).toBe("strike");
+    expect(paragraph?.content?.[6]?.marks?.[0]?.type).toBe("code");
+    expect(paragraph?.content?.[8]?.marks?.[0]?.type).toBe("link");
+  });
+
   it("可以从备份对象中取出 notes", () => {
     const notes = parseBackupNotes({
       app: "suiji",

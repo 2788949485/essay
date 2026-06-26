@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.24 - 2026-06-26
+
+- Replaced the hand-rolled Markdown import parser with a `markdown-it`-based flow so imported `.md` files now preserve common Markdown/GFM structure including blockquotes, task lists, nested lists, fenced code blocks, horizontal rules, images, tables, and common inline marks.
+
 ## 0.9.23 - 2026-06-23
 
 - Fixed text drag selection in the editor by pausing hover-block DOM updates while the mouse button is held down and removing hover translation from normal text blocks.
