@@ -3021,38 +3021,11 @@ export default function App() {
           <div className="tool-rail" aria-label="右侧工具">
             <button
               type="button"
-              className="tool-rail-button"
-              title="插入"
-              aria-label="插入"
-              onClick={() => setFormatPanelExpanded(true)}
-            >
-              <Plus size={18} />
-            </button>
-            <button
-              type="button"
               className={formatPanelExpanded ? "tool-rail-button is-active" : "tool-rail-button"}
               aria-label={formatPanelExpanded ? "收起格式面板" : "展开格式面板"}
               onClick={() => setFormatPanelExpanded((current) => !current)}
             >
               Aa
-            </button>
-            <button
-              type="button"
-              className="tool-rail-button"
-              title="装饰"
-              aria-label="装饰"
-              onClick={() => setFormatPanelExpanded(true)}
-            >
-              <Highlighter size={18} />
-            </button>
-            <button
-              type="button"
-              className="tool-rail-button"
-              title="信息"
-              aria-label="信息"
-              onClick={() => setFormatPanelExpanded(true)}
-            >
-              <Info size={18} />
             </button>
           </div>
         ) : null}
@@ -3478,4 +3451,3 @@ export default function App() {
     </main>
   );
 }
-
