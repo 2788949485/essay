@@ -36,6 +36,6 @@ describe("app shell templates", () => {
     );
     const labels = template.map((item) => item.label).filter(Boolean);
     expect(labels).toContain("保存剪贴板为记录");
-    expect(labels).toContain(`快捷键：${DEFAULT_SETTINGS.hotkey}`);
+    expect(labels).toContain("快捷键：Ctrl + Alt + J");
   });
 });

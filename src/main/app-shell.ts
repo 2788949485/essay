@@ -155,7 +155,7 @@ export function buildTrayMenuTemplate(settings: AppSettings, callbacks: ShellCal
     },
     { type: "separator" },
     {
-      label: `快捷键：${settings.hotkey}`,
+      label: `快捷键：${settings.hotkey.replace("CommandOrControl", "Ctrl").replace(/\+/g, " + ")}`,
       enabled: false
     },
     { type: "separator" },
