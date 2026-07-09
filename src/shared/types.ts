@@ -92,10 +92,17 @@ export type NotesBackup = {
   notes: NoteRecord[];
 };
 
+export type RestoreFailure = {
+  id?: string;
+  title?: string;
+  reason: string;
+};
+
 export type RestoreResult = {
   total: number;
   imported: number;
   skipped: number;
+  failures?: RestoreFailure[];
 };
 
 export type EncryptedExportImportResult = RestoreResult & {

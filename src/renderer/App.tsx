@@ -17,6 +17,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import Highlight from "@tiptap/extension-highlight";
 import TextAlign from "@tiptap/extension-text-align";
 import Typography from "@tiptap/extension-typography";
+import { SafeAutolink } from "./safe-link";
 import {
   AlignCenter,
   AlignLeft,
@@ -62,7 +63,14 @@ import {
   Undo2,
   Upload
 } from "lucide-react";
-import type { AppSettings, BackupEntry, BatchExportFormat, NoteRecord } from "../shared/types";
+import type { AppSettings, BackupEntry, BatchExportFormat, NoteRecord, RestoreFailure } from "../shared/types";
+
+function describeRestoreFailures(failures?: RestoreFailure[]): string {
+  if (!failures || failures.length === 0) return "";
+  const shown = failures.slice(0, 3).map((f) => `${f.title ?? f.id ?? "未知记录"}：${f.reason}`);
+  const suffix = failures.length > shown.length ? ` 等 ${failures.length} 条` : "";
+  return `（${shown.join("；")}${suffix}）`;
+}
 
 type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 type ExportFormat = "html" | "json" | "txt" | "md" | "pdf";
@@ -830,6 +838,7 @@ export default function App() {
         autolink: true,
         openOnClick: false
       }),
+      SafeAutolink,
       Image.configure({
         inline: false,
         allowBase64: true
@@ -1803,7 +1812,9 @@ export default function App() {
         return;
       }
       await reloadNotesAfterExternalImport();
-      setDataActionStatus(`恢复完成：导入 ${result.imported}/${result.total} 条，跳过 ${result.skipped} 条`);
+      setDataActionStatus(
+        `恢复完成：导入 ${result.imported}/${result.total} 条，跳过 ${result.skipped} 条${describeRestoreFailures(result.failures)}`
+      );
     } catch (error) {
       setDataActionStatus(error instanceof Error ? error.message : "恢复失败");
     }
@@ -1822,7 +1833,7 @@ export default function App() {
       }
       await reloadNotesAfterExternalImport();
       setDataActionStatus(
-        `导入完成：${result.kind === "note-export" ? "单篇" : "批量"}加密导出，导入 ${result.imported}/${result.total} 条，跳过 ${result.skipped} 条`
+        `导入完成：${result.kind === "note-export" ? "单篇" : "批量"}加密导出，导入 ${result.imported}/${result.total} 条，跳过 ${result.skipped} 条${describeRestoreFailures(result.failures)}`
       );
     } catch (error) {
       setDataActionStatus(error instanceof Error ? error.message : "导入加密导出失败");
@@ -1935,6 +1946,8 @@ export default function App() {
       setPrivacyLocked(false);
       setUnlockPin("");
       focusEditorSoon();
+    } catch (error) {
+      setUnlockError(error instanceof Error ? error.message : "解锁失败");
     } finally {
       setUnlockBusy(false);
     }

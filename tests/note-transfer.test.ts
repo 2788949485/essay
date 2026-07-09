@@ -69,4 +69,18 @@ describe("note transfer helpers", () => {
   it("导出文件名会清理非法字符", () => {
     expect(safeExportName('a:b/c*?"', "md")).toBe("a_b_c___.md");
   });
+
+  it("自动链接不包含前面的中文", () => {
+    const paragraph = markdownToDoc("或者在电脑端访问www.caixuetang.cn，查看个人中心").content?.[0];
+
+    expect(paragraph?.content).toEqual([
+      { type: "text", text: "或者在电脑端访问", marks: undefined },
+      {
+        type: "text",
+        text: "www.caixuetang.cn",
+        marks: [{ type: "link", attrs: { href: "http://www.caixuetang.cn" } }]
+      },
+      { type: "text", text: "，查看个人中心", marks: undefined }
+    ]);
+  });
 });

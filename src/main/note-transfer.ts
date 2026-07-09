@@ -86,12 +86,21 @@ function pushTextNode(target: JSONContent[], text: string, marks: JSONContent["m
 function parseInlineTokens(tokens: MarkdownToken[] = []) {
   const nodes: JSONContent[] = [];
   const marks: NonNullable<JSONContent["marks"]> = [];
+  let autoLink = false;
 
   for (const token of tokens) {
     switch (token.type) {
-      case "text":
+      case "text": {
+        const match = autoLink ? token.content.match(/^(.+?)(www\..+)$/i) : null;
+        if (match) {
+          pushTextNode(nodes, match[1], marks.slice(0, -1));
+          marks[marks.length - 1].attrs = { href: `http://${match[2]}` };
+          pushTextNode(nodes, match[2], marks);
+          break;
+        }
         pushTextNode(nodes, token.content, marks);
         break;
+      }
       case "softbreak":
       case "hardbreak":
         nodes.push({ type: "hardBreak" });
@@ -118,6 +127,7 @@ function parseInlineTokens(tokens: MarkdownToken[] = []) {
         marks.pop();
         break;
       case "link_open":
+        autoLink = token.markup === "linkify";
         marks.push({
           type: "link",
           attrs: { href: tokenAttr(token, "href") ?? "" }
@@ -125,6 +135,7 @@ function parseInlineTokens(tokens: MarkdownToken[] = []) {
         break;
       case "link_close":
         marks.pop();
+        autoLink = false;
         break;
       case "image":
         nodes.push({

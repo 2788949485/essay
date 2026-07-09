@@ -58,6 +58,7 @@ import type {
   ExportPayload,
   NoteRecord,
   NotesBackup,
+  RestoreFailure,
   RestoreResult,
   SettingsUpdatePayload
 } from "../shared/types.js";
@@ -96,6 +97,9 @@ let settingsCache: StoredSettings | null = null;
 let activePrivacyPin: string | null = null;
 let idleLockTimer: NodeJS.Timeout | null = null;
 let idleLockTriggered = false;
+let pinFailureCount = 0;
+let pinLockUntil = 0;
+const PIN_FAILURE_LOCK_THRESHOLD = 5;
 
 type StorageConfig = {
   dataRoot?: string;
@@ -774,6 +778,76 @@ function upsertNoteInDatabase(note: NoteRecord) {
   ]);
 }
 
+function updateNoteContentFields(note: NoteRecord) {
+  dbExec(
+    `
+      UPDATE notes SET
+        title = ?,
+        excerpt = ?,
+        tags_json = ?,
+        folder = ?,
+        content_json = ?,
+        html = ?,
+        plain_text = ?,
+        updated_at = ?
+      WHERE id = ?
+    `,
+    [
+      note.title,
+      note.excerpt,
+      JSON.stringify(note.tags),
+      note.folder,
+      JSON.stringify(note.content),
+      note.html,
+      note.plainText,
+      note.updatedAt,
+      note.id
+    ]
+  );
+  dbExec("DELETE FROM notes_fts WHERE id = ?", [note.id]);
+  dbExec("INSERT INTO notes_fts(id, title, excerpt, tags, folder, plain_text) VALUES (?, ?, ?, ?, ?, ?)", [
+    note.id,
+    note.title,
+    note.excerpt,
+    note.tags.join(" "),
+    note.folder,
+    note.plainText
+  ]);
+}
+
+function updateNoteMetaFields(
+  id: string,
+  patch: {
+    pinnedAt?: string | null;
+    favoriteAt?: string | null;
+    archivedAt?: string | null;
+    trashedAt?: string | null;
+  },
+  updatedAt: string
+) {
+  const columns: string[] = [];
+  const values: (string | null)[] = [];
+  if ("pinnedAt" in patch) {
+    columns.push("pinned_at = ?");
+    values.push(patch.pinnedAt ?? null);
+  }
+  if ("favoriteAt" in patch) {
+    columns.push("favorite_at = ?");
+    values.push(patch.favoriteAt ?? null);
+  }
+  if ("archivedAt" in patch) {
+    columns.push("archived_at = ?");
+    values.push(patch.archivedAt ?? null);
+  }
+  if ("trashedAt" in patch) {
+    columns.push("trashed_at = ?");
+    values.push(patch.trashedAt ?? null);
+  }
+  columns.push("updated_at = ?");
+  values.push(updatedAt, id);
+  dbExec(`UPDATE notes SET ${columns.join(", ")} WHERE id = ?`, values);
+}
+
 async function syncJsonNotesToDatabase() {
   const files = await fs.readdir(notesDir).catch(() => []);
   const noteFiles = files.filter((file) => file.endsWith(".json") && NOTE_ID_PATTERN.test(path.basename(file, ".json")));
@@ -1183,6 +1257,7 @@ async function importEncryptedExport(
 async function importSanitizedNotes(rawNotes: unknown[], backupPrefix: string): Promise<RestoreResult> {
   let imported = 0;
   let skipped = 0;
+  const failures: RestoreFailure[] = [];
 
   for (const rawNote of rawNotes) {
     try {
@@ -1190,8 +1265,14 @@ async function importSanitizedNotes(rawNotes: unknown[], backupPrefix: string): 
       await backupExistingNote(note.id, backupPrefix);
       await writeNoteToDatabase(note, false);
       imported += 1;
-    } catch {
+    } catch (error) {
       skipped += 1;
+      const meta = (rawNote && typeof rawNote === "object" ? rawNote : {}) as { id?: unknown; title?: unknown };
+      failures.push({
+        id: typeof meta.id === "string" ? meta.id : undefined,
+        title: typeof meta.title === "string" ? meta.title : undefined,
+        reason: error instanceof Error ? error.message : String(error)
+      });
     }
   }
 
@@ -1201,7 +1282,8 @@ async function importSanitizedNotes(rawNotes: unknown[], backupPrefix: string): 
   return {
     total: rawNotes.length,
     imported,
-    skipped
+    skipped,
+    failures
   };
 }
 
@@ -1226,10 +1308,12 @@ async function saveNote(rawNote: NoteRecord): Promise<NoteRecord> {
   });
 
   await backupExistingNoteIfStale(normalized.id);
-  await writeNoteToDatabase(normalized, false);
+  updateNoteContentFields(normalized);
+  notesDbDirty = true;
+  const latest = await finalizeNoteWrite(normalized.id);
   await persistNotesDatabase();
   void pruneBackups();
-  return normalized;
+  return latest;
 }
 
 async function readNote(id: string): Promise<NoteRecord> {
@@ -1247,49 +1331,46 @@ async function readNote(id: string): Promise<NoteRecord> {
   return noteFromDbRow(row);
 }
 
+async function finalizeNoteWrite(id: string): Promise<NoteRecord> {
+  const latest = await readNote(id);
+  await writeNoteShadowFile(latest);
+  return latest;
+}
+
 async function togglePinNote(id: string): Promise<NoteRecord> {
   const note = await readNote(id);
   const now = new Date().toISOString();
-  const next = normalizeNote({
-    ...note,
-    pinnedAt: note.pinnedAt ? null : now,
-    updatedAt: now
-  });
-  await backupExistingNote(next.id);
-  await writeNoteToDatabase(next, false);
+  await backupExistingNote(id);
+  updateNoteMetaFields(id, { pinnedAt: note.pinnedAt ? null : now }, now);
+  notesDbDirty = true;
+  const latest = await finalizeNoteWrite(id);
   await persistNotesDatabase();
   void pruneBackups();
-  return next;
+  return latest;
 }
 
 async function toggleFavoriteNote(id: string): Promise<NoteRecord> {
   const note = await readNote(id);
   const now = new Date().toISOString();
-  const next = normalizeNote({
-    ...note,
-    favoriteAt: note.favoriteAt ? null : now,
-    updatedAt: now
-  });
-  await backupExistingNote(next.id);
-  await writeNoteToDatabase(next, false);
+  await backupExistingNote(id);
+  updateNoteMetaFields(id, { favoriteAt: note.favoriteAt ? null : now }, now);
+  notesDbDirty = true;
+  const latest = await finalizeNoteWrite(id);
   await persistNotesDatabase();
   void pruneBackups();
-  return next;
+  return latest;
 }
 
 async function toggleArchiveNote(id: string): Promise<NoteRecord> {
   const note = await readNote(id);
   const now = new Date().toISOString();
-  const next = normalizeNote({
-    ...note,
-    archivedAt: note.archivedAt ? null : now,
-    updatedAt: now
-  });
-  await backupExistingNote(next.id);
-  await writeNoteToDatabase(next, false);
+  await backupExistingNote(id);
+  updateNoteMetaFields(id, { archivedAt: note.archivedAt ? null : now }, now);
+  notesDbDirty = true;
+  const latest = await finalizeNoteWrite(id);
   await persistNotesDatabase();
   void pruneBackups();
-  return next;
+  return latest;
 }
 
 async function createNote(): Promise<NoteRecord> {
@@ -1457,32 +1538,26 @@ async function createClipboardNote() {
 }
 
 async function deleteNote(id: string) {
-  const note = await readNote(id);
+  await readNote(id);
   const now = new Date().toISOString();
-  const next = normalizeNote({
-    ...note,
-    trashedAt: now,
-    updatedAt: now
-  });
   await backupExistingNote(id, "deleted");
-  await writeNoteToDatabase(next, false);
+  updateNoteMetaFields(id, { trashedAt: now }, now);
+  notesDbDirty = true;
+  await finalizeNoteWrite(id);
   await persistNotesDatabase();
   void pruneBackups();
 }
 
 async function restoreNote(id: string): Promise<NoteRecord> {
-  const note = await readNote(id);
+  await readNote(id);
   const now = new Date().toISOString();
-  const next = normalizeNote({
-    ...note,
-    trashedAt: null,
-    updatedAt: now
-  });
   await backupExistingNote(id, "restore-trash");
-  await writeNoteToDatabase(next, false);
+  updateNoteMetaFields(id, { trashedAt: null }, now);
+  notesDbDirty = true;
+  const latest = await finalizeNoteWrite(id);
   await persistNotesDatabase();
   void pruneBackups();
-  return next;
+  return latest;
 }
 
 async function purgeNote(id: string) {
@@ -1560,10 +1635,25 @@ async function migrateDataRoot(targetRoot: string) {
 
   await fs.mkdir(resolvedTarget, { recursive: true });
   await persistNotesDatabase();
-  await copyPathIfExists(path.join(sourceRoot, "suiji.db"), path.join(resolvedTarget, "suiji.db"));
-  await copyPathIfExists(path.join(sourceRoot, "notes"), path.join(resolvedTarget, "notes"));
-  await copyPathIfExists(path.join(sourceRoot, "backups"), path.join(resolvedTarget, "backups"));
-  await copyPathIfExists(path.join(sourceRoot, "settings.json"), path.join(resolvedTarget, "settings.json"));
+
+  // 暂存目录隔离复制过程，失败可清理；并入沿用 copyPathIfExists 的“不覆盖已有”语义。
+  const staging = path.join(resolvedTarget, ".suiji-migrating-tmp");
+  await fs.rm(staging, { recursive: true, force: true });
+  await fs.mkdir(staging, { recursive: true });
+  const entries = ["suiji.db", "notes", "backups", "settings.json"];
+  try {
+    for (const entry of entries) {
+      await copyPathIfExists(path.join(sourceRoot, entry), path.join(staging, entry));
+    }
+  } catch (error) {
+    await fs.rm(staging, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
+
+  for (const entry of entries) {
+    await copyPathIfExists(path.join(staging, entry), path.join(resolvedTarget, entry));
+  }
+  await fs.rm(staging, { recursive: true, force: true }).catch(() => undefined);
 }
 
 async function changeDataFolder() {
@@ -1950,8 +2040,15 @@ function registerIpc() {
     return ok;
   });
   ipcMain.handle("privacy:verify-pin", async (_event, pin: string) => {
+    const now = Date.now();
+    if (now < pinLockUntil) {
+      throw new Error(`尝试次数过多，请 ${Math.ceil((pinLockUntil - now) / 1000)} 秒后再试`);
+    }
+
     const candidate = coerceString(pin, "", MAX_PIN_LENGTH);
     if (activePrivacyPin && candidate && activePrivacyPin === candidate && notesDb) {
+      pinFailureCount = 0;
+      pinLockUntil = 0;
       idleLockTriggered = false;
       return true;
     }
@@ -1959,9 +2056,18 @@ function registerIpc() {
     const settings = await readStoredSettings();
     const sessionPinMatches = Boolean(activePrivacyPin && candidate && activePrivacyPin === candidate);
     const ok = sessionPinMatches || verifyPin(settings, candidate);
-    if (!ok) return false;
+    if (!ok) {
+      pinFailureCount += 1;
+      if (pinFailureCount >= PIN_FAILURE_LOCK_THRESHOLD) {
+        const lockSeconds = Math.min(2 ** (pinFailureCount - PIN_FAILURE_LOCK_THRESHOLD), 60);
+        pinLockUntil = Date.now() + lockSeconds * 1000;
+      }
+      return false;
+    }
     const effectiveSettings = sessionPinMatches ? settings : await refreshPinHashAfterUnlock(settings, candidate);
     activePrivacyPin = candidate;
+    pinFailureCount = 0;
+    pinLockUntil = 0;
     idleLockTriggered = false;
     if (isStorageEncryptionEnabled(effectiveSettings) && !notesDb) {
       await initializeNotesDatabase(effectiveSettings);
