@@ -1947,7 +1947,11 @@ export default function App() {
       setUnlockPin("");
       focusEditorSoon();
     } catch (error) {
-      setUnlockError(error instanceof Error ? error.message : "解锁失败");
+      const message =
+        error instanceof Error
+          ? error.message.replace(/^Error invoking remote method '[^']+': Error:\s*/, "")
+          : "";
+      setUnlockError(message || "解锁失败，请稍后重试");
     } finally {
       setUnlockBusy(false);
     }
