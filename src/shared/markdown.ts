@@ -48,6 +48,10 @@ function renderInline(node: JSONContent): string {
     return "  \n";
   }
 
+  if (node.type === "mathInline") {
+    return `$${String(node.attrs?.latex ?? "")}$`;
+  }
+
   if (node.type === "image") {
     return renderImage(node);
   }
@@ -164,6 +168,8 @@ function renderBlock(node: JSONContent, depth = 0): string {
         .join("\n");
     case "collapsibleBlock":
       return renderCollapsibleBlock(node, depth);
+    case "mathBlock":
+      return `$$${String(node.attrs?.latex ?? "")}$$`;
     case "codeBlock":
       return `\`\`\`\n${node.content?.map((child) => child.text ?? "").join("") ?? ""}\n\`\`\``;
     case "horizontalRule":

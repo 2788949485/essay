@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { markdownToDoc, parseBackupNotes, safeExportName } from "../src/main/note-transfer";
+import { isStandaloneLatex } from "../src/shared/math-patterns";
 
 describe("note transfer helpers", () => {
   it("markdown 可以转为基础文档结构", () => {
@@ -82,5 +83,10 @@ describe("note transfer helpers", () => {
       },
       { type: "text", text: "，查看个人中心", marks: undefined }
     ]);
+  });
+
+  it("可以识别未包裹分隔符的 LaTeX 公式", () => {
+    expect(isStandaloneLatex("J(\\theta) = -\\frac{1}{m} \\sum_{i=1}^{m} y^{(i)}")).toBe(true);
+    expect(isStandaloneLatex("这是一段普通文本")).toBe(false);
   });
 });

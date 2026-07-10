@@ -2,6 +2,7 @@ import { buildHtmlExport } from "./html-export.js";
 import type { JSONContent } from "@tiptap/react";
 import MarkdownIt from "markdown-it";
 import { toMarkdown } from "../shared/markdown.js";
+import { splitInlineMath } from "../shared/math-patterns.js";
 import type { BackupEntry, ExportPayload, NoteRecord, NotesBackup } from "../shared/types.js";
 
 export function safeExportName(name: string, ext: string) {
@@ -98,7 +99,13 @@ function parseInlineTokens(tokens: MarkdownToken[] = []) {
           pushTextNode(nodes, match[2], marks);
           break;
         }
-        pushTextNode(nodes, token.content, marks);
+        for (const seg of splitInlineMath(token.content)) {
+          if (seg.type === "math") {
+            nodes.push({ type: "mathInline", attrs: { latex: seg.latex } });
+          } else {
+            pushTextNode(nodes, seg.text, marks);
+          }
+        }
         break;
       }
       case "softbreak":
@@ -287,7 +294,17 @@ function parseBlocks(tokens: MarkdownToken[], startIndex = 0, stopType?: string)
       }
       case "paragraph_open": {
         const inline = tokens[index + 1];
-        nodes.push(...paragraphBlocksFromInline(inline?.type === "inline" ? inline.children ?? [] : []));
+        const children = inline?.type === "inline" ? inline.children ?? [] : [];
+        const fullText = children
+          .map((t) => (t.type === "softbreak" || t.type === "hardbreak" ? "\n" : t.content ?? ""))
+          .join("");
+        const blockMatch = fullText.match(/^\s*\$\$([\s\S]+?)\$\$\s*$/);
+        if (blockMatch) {
+          nodes.push({ type: "mathBlock", attrs: { latex: blockMatch[1].trim() } });
+          index += 3;
+          break;
+        }
+        nodes.push(...paragraphBlocksFromInline(children));
         index += 3;
         break;
       }

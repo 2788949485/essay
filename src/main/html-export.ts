@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+import katex from "katex";
 import type { NoteRecord } from "../shared/types.js";
 
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
@@ -9,6 +12,27 @@ function escapeHtml(value: string) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function katexHtml(latex: string, displayMode: boolean): string {
+  try {
+    return katex.renderToString(latex, { displayMode, throwOnError: false, output: "htmlAndMathml" });
+  } catch {
+    return `<code>${escapeHtml(latex)}</code>`;
+  }
+}
+
+let katexCssCache: string | null = null;
+function getKatexCss(): string {
+  if (katexCssCache !== null) return katexCssCache;
+  try {
+    const pkgPath = require.resolve("katex/package.json");
+    const cssPath = path.join(path.dirname(pkgPath), "dist", "katex.min.css");
+    katexCssCache = fs.readFileSync(cssPath, "utf8").replace(/url\([^)]*\)/g, "url()");
+  } catch {
+    katexCssCache = "";
+  }
+  return katexCssCache;
 }
 
 function escapeHtmlAttribute(value: string) {
@@ -52,6 +76,7 @@ function renderInlineHtml(node: JsonNode): string {
   }
 
   if (node.type === "hardBreak") return "<br>";
+  if (node.type === "mathInline") return katexHtml(String(node.attrs?.latex ?? ""), false);
   if (node.type === "image") return renderBlockHtml(node);
   return (node.content ?? []).map(renderInlineHtml).join("");
 }
@@ -127,6 +152,8 @@ function renderBlockHtml(node: JsonNode): string {
       const open = node.attrs?.open ? " open" : "";
       return `<details data-type="collapsible-block"${open}><summary>${title}</summary><div>${children.map(renderBlockHtml).join("") || "<p></p>"}</div></details>`;
     }
+    case "mathBlock":
+      return `<div class="math-block">${katexHtml(String(node.attrs?.latex ?? ""), true)}</div>`;
     default:
       return children.map(renderBlockHtml).join("");
   }
@@ -160,6 +187,8 @@ export function buildHtmlExport(note: NoteRecord) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${title}</title>
   <style>
+    ${getKatexCss()}
+    .math-block { text-align: center; margin: 1em 0; }
     @page {
       size: A4;
       margin: 18mm 16mm 20mm;

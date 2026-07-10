@@ -3,6 +3,7 @@ import { Extension, Node as TiptapNode, mergeAttributes } from "@tiptap/core";
 import { EditorContent, FloatingMenu, NodeViewContent, NodeViewWrapper, ReactNodeViewRenderer, useEditor } from "@tiptap/react";
 import type { JSONContent, NodeViewProps } from "@tiptap/react";
 import { TextSelection } from "@tiptap/pm/state";
+import { Fragment, Slice } from "@tiptap/pm/model";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
@@ -18,6 +19,8 @@ import Highlight from "@tiptap/extension-highlight";
 import TextAlign from "@tiptap/extension-text-align";
 import Typography from "@tiptap/extension-typography";
 import { SafeAutolink } from "./safe-link";
+import { MathExtensions } from "./math-extension";
+import { BLOCK_MATH, isStandaloneLatex, splitInlineMath } from "../shared/math-patterns";
 import {
   AlignCenter,
   AlignLeft,
@@ -54,6 +57,7 @@ import {
   Plus,
   Redo2,
   Search,
+  Sigma,
   Star,
   StarOff,
   Strikethrough,
@@ -558,6 +562,44 @@ function HighlightedText({ text, keyword }: { text: string; keyword: string }) {
   return <>{parts}</>;
 }
 
+function splitPastedMath(text: string): JSONContent[] | null {
+  if (!text.includes("$")) {
+    const latex = text.trim();
+    return isStandaloneLatex(latex) ? [{ type: "mathBlock", attrs: { latex } }] : null;
+  }
+  const blocks: JSONContent[] = [];
+  const blockRe = new RegExp(BLOCK_MATH.source, "g");
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  let hasMath = false;
+
+  const flushText = (chunk: string) => {
+    if (!chunk) return;
+    for (const line of chunk.split(/\r?\n/)) {
+      const inline: JSONContent[] = [];
+      for (const seg of splitInlineMath(line)) {
+        if (seg.type === "math") {
+          inline.push({ type: "mathInline", attrs: { latex: seg.latex } });
+          hasMath = true;
+        } else if (seg.text) {
+          inline.push({ type: "text", text: seg.text });
+        }
+      }
+      blocks.push({ type: "paragraph", content: inline.length ? inline : undefined });
+    }
+  };
+
+  while ((match = blockRe.exec(text)) !== null) {
+    flushText(text.slice(cursor, match.index));
+    blocks.push({ type: "mathBlock", attrs: { latex: match[1].trim() } });
+    hasMath = true;
+    cursor = match.index + match[0].length;
+  }
+  flushText(text.slice(cursor));
+
+  return hasMath ? blocks : null;
+}
+
 function extractOutline(editor: ActiveEditor | null): OutlineItem[] {
   if (!editor) return [];
   const items: OutlineItem[] = [];
@@ -833,6 +875,7 @@ export default function App() {
       }),
       BlockFormatExtension,
       CollapsibleBlockExtension,
+      ...MathExtensions,
       Underline,
       Link.configure({
         autolink: true,
@@ -876,6 +919,15 @@ export default function App() {
         if (!link?.href) return false;
         event.preventDefault();
         void window.suiji.openExternalLink(link.href);
+        return true;
+      },
+      handlePaste: (view, event) => {
+        const text = event.clipboardData?.getData("text/plain") ?? "";
+        const segments = splitPastedMath(text);
+        if (!segments) return false;
+        event.preventDefault();
+        const nodes = segments.map((segment) => view.state.schema.nodeFromJSON(segment));
+        view.dispatch(view.state.tr.replaceSelection(new Slice(Fragment.from(nodes), 0, 0)).scrollIntoView());
         return true;
       }
     },
@@ -1039,6 +1091,18 @@ export default function App() {
     focusInsertedCollapsibleTitle(insertPos);
   }
 
+  function insertMathBlock() {
+    if (!editor || activeNote?.trashedAt) return;
+    const { from, to } = editor.state.selection;
+    const selectedLatex = editor.state.doc.textBetween(from, to, "\n").trim();
+    editor
+      .chain()
+      .focus()
+      .deleteSelection()
+      .insertContent({ type: "mathBlock", attrs: { latex: selectedLatex, editOnCreate: true } })
+      .run();
+  }
+
   const loadNotes = useCallback(async () => {
     const loadedSettings = await window.suiji.getSettings();
     setSettings(loadedSettings);
@@ -1200,6 +1264,10 @@ export default function App() {
         setFindOpen(true);
         setReplaceOpen(true);
       }
+      if (event.key.toLowerCase() === "e" && event.shiftKey) {
+        event.preventDefault();
+        insertMathBlock();
+      }
     }
 
     window.addEventListener("keydown", onKeyDown);
@@ -1210,9 +1278,11 @@ export default function App() {
     function onPaste(event: ClipboardEvent) {
       if (!editor?.isFocused) return;
       const file = Array.from(event.clipboardData?.files ?? []).find((item) => item.type.startsWith("image/"));
-      if (!file) return;
-      event.preventDefault();
-      void handleInsertImage(file);
+      if (file) {
+        event.preventDefault();
+        void handleInsertImage(file);
+        return;
+      }
     }
 
     window.addEventListener("paste", onPaste);
@@ -2049,6 +2119,12 @@ export default function App() {
       label: "折叠块",
       hint: "可连续嵌套层级",
       run: () => insertCollapsibleBlock()
+    },
+    {
+      id: "math-block",
+      label: "公式",
+      hint: "LaTeX 实时预览",
+      run: () => insertMathBlock()
     },
     {
       id: "code-block",
@@ -2897,6 +2973,10 @@ export default function App() {
                 >
                   <ChevronDown size={16} />
                   折叠块
+                </button>
+                <button type="button" className="format-button" onMouseDown={keepEditorFocus} onClick={insertMathBlock} disabled={!editor || editorDisabled} title="插入公式（Ctrl/Cmd + Shift + E）">
+                  <Sigma size={16} />
+                  公式
                 </button>
                 <button type="button" className={editor?.isActive("codeBlock") ? "format-button is-active" : "format-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleCodeBlock().run()} disabled={!editor || editorDisabled}>
                   <Code2 size={16} />
