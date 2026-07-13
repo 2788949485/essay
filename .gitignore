@@ -5,6 +5,7 @@ release-fixed/
 release-installer/
 release-portable-*/
 release-formula-final/
+release-next*/
 build/
 
 .vite/

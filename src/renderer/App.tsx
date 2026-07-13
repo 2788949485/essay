@@ -21,6 +21,7 @@ import Typography from "@tiptap/extension-typography";
 import { SafeAutolink } from "./safe-link";
 import { MathExtensions } from "./math-extension";
 import { BLOCK_MATH, isStandaloneLatex, splitInlineMath } from "../shared/math-patterns";
+import { removeNoteMetadata, type NoteMetadataKind } from "../shared/note-metadata";
 import {
   AlignCenter,
   AlignLeft,
@@ -65,7 +66,8 @@ import {
   Trash2,
   Underline as UnderlineIcon,
   Undo2,
-  Upload
+  Upload,
+  X
 } from "lucide-react";
 import type { AppSettings, BackupEntry, BatchExportFormat, NoteRecord, RestoreFailure } from "../shared/types";
 
@@ -1451,7 +1453,7 @@ export default function App() {
         note.plainText.toLowerCase().includes(keyword) ||
         note.tags.some((tag) => tag.toLowerCase().includes(keyword)) ||
         note.folder.toLowerCase().includes(keyword);
-      const matchesKeyword = !keyword || (ftsMatchedIdSet ? ftsMatchedIdSet.has(note.id) : localMatchesKeyword);
+      const matchesKeyword = !keyword || localMatchesKeyword || Boolean(ftsMatchedIdSet?.has(note.id));
       return matchesTag && matchesFolder && matchesKeyword;
     });
   }, [ftsMatchedIdSet, notes, searchSyntax, selectedFolder, selectedTag, viewMode]);
@@ -1705,6 +1707,34 @@ export default function App() {
       onConfirm: async () => {
         await window.suiji.purgeNote(id);
         await reloadNotes("trash");
+      }
+    });
+  }
+
+  function handleRemoveMetadata(kind: NoteMetadataKind, value: string) {
+    const affectedCount = notes.filter((note) => (kind === "tag" ? note.tags.includes(value) : note.folder === value)).length;
+    const label = kind === "tag" ? "标签" : "文件夹";
+    setConfirmDialog({
+      title: `删除${label}`,
+      description: `「${value}」已用于 ${affectedCount} 篇记录。确认后会从这些记录中移除，无法自动恢复。`,
+      confirmLabel: `删除${label}`,
+      tone: "danger",
+      icon: "trash",
+      onConfirm: async () => {
+        await saveActive({ skipClean: true });
+        const currentNotes = await window.suiji.listNotes();
+        for (const note of currentNotes) {
+          if (kind === "tag" ? !note.tags.includes(value) : note.folder !== value) continue;
+          await window.suiji.saveNote(removeNoteMetadata(note, kind, value));
+        }
+        const loaded = await reloadNotes();
+        const nextActive = loaded.find((note) => note.id === activeIdRef.current);
+        if (nextActive) {
+          setTagsDraft(nextActive.tags.join(", "));
+          setFolderDraft(nextActive.folder);
+        }
+        if (kind === "tag") setSelectedTag((current) => (current === value ? "" : current));
+        else setSelectedFolder((current) => (current === value ? "" : current));
       }
     });
   }
@@ -2368,15 +2398,25 @@ export default function App() {
                         全部文件夹
                       </button>
                       {allFolders.map((folder) => (
-                        <button
-                          key={folder}
-                          type="button"
-                          className={selectedFolder === folder ? "is-active" : ""}
-                          onClick={() => setSelectedFolder(folder)}
-                        >
-                          <Folder size={13} />
-                          {folder}
-                        </button>
+                        <div className="metadata-filter-item" key={folder}>
+                          <button
+                            type="button"
+                            className={selectedFolder === folder ? "is-active" : ""}
+                            onClick={() => setSelectedFolder(folder)}
+                          >
+                            <Folder size={13} />
+                            {folder}
+                          </button>
+                          <button
+                            type="button"
+                            className="metadata-filter-remove"
+                            aria-label={`删除文件夹 ${folder}`}
+                            title={`删除文件夹 ${folder}`}
+                            onClick={() => handleRemoveMetadata("folder", folder)}
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
                       ))}
                     </div>
                   ) : null}
@@ -2391,14 +2431,24 @@ export default function App() {
                         全部
                       </button>
                       {allTags.map((tag) => (
-                        <button
-                          key={tag}
-                          type="button"
-                          className={selectedTag === tag ? "is-active" : ""}
-                          onClick={() => setSelectedTag(tag)}
-                        >
-                          {tag}
-                        </button>
+                        <div className="metadata-filter-item" key={tag}>
+                          <button
+                            type="button"
+                            className={selectedTag === tag ? "is-active" : ""}
+                            onClick={() => setSelectedTag(tag)}
+                          >
+                            {tag}
+                          </button>
+                          <button
+                            type="button"
+                            className="metadata-filter-remove"
+                            aria-label={`删除标签 ${tag}`}
+                            title={`删除标签 ${tag}`}
+                            onClick={() => handleRemoveMetadata("tag", tag)}
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
                       ))}
                     </div>
                   ) : null}
@@ -2423,11 +2473,16 @@ export default function App() {
 
                   <div className="sidebar-list-header">
                     <span>{viewMode === "recent" ? "最近编辑" : "记录列表"}</span>
-                    <strong>{viewMode === "recent" ? recentNotes.length : filteredNotes.length}</strong>
+                    <strong>{filteredNotes.length}</strong>
                   </div>
 
                   <nav className="note-list">
-                    {filteredNotes.map((note) => (
+                    {filteredNotes.length === 0 ? (
+                      <p className="note-list-empty" role="status">
+                        {query || selectedFolder || selectedTag ? "没有匹配的记录" : "这里还没有记录"}
+                      </p>
+                    ) : (
+                      filteredNotes.map((note) => (
                       <div
                         key={note.id}
                         className={note.id === activeId ? "note-item is-active" : "note-item"}
@@ -2550,7 +2605,8 @@ export default function App() {
                         </span>
                         <span className="note-time">{formatTime(note.updatedAt)}</span>
                       </div>
-                    ))}
+                      ))
+                    )}
                   </nav>
                 </>
               )}

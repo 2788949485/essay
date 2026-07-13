@@ -495,6 +495,44 @@ input::placeholder {
   font-size: 12px;
 }
 
+.metadata-filter-item {
+  position: relative;
+}
+
+.metadata-filter-item > button:first-child {
+  padding-right: 18px;
+}
+
+.metadata-filter-remove {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  display: grid;
+  width: 15px;
+  height: 15px !important;
+  place-items: center;
+  border: 1px solid #dfe3ea;
+  border-radius: 999px;
+  background: #fff;
+  color: #7a818c;
+  cursor: pointer;
+  opacity: 0;
+  padding: 0 !important;
+  transition: opacity 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+.metadata-filter-item:hover .metadata-filter-remove,
+.metadata-filter-remove:focus-visible {
+  opacity: 1;
+}
+
+.metadata-filter-remove:hover {
+  border-color: #ef9a9a;
+  background: #fff4f4;
+  color: #c2413b;
+  transform: none !important;
+}
+
 .new-note-button {
   display: inline-flex;
   height: 44px;
@@ -772,6 +810,14 @@ input::placeholder {
   gap: 2px;
   overflow-y: auto;
   padding-right: 8px;
+}
+
+.note-list-empty {
+  margin: 24px 8px;
+  color: var(--subtle-text);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
 }
 
 .note-item {
@@ -3894,6 +3940,23 @@ input[type="range"] {
   font-weight: 500;
 }
 
+.editor-surface .math-edit-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-surface .math-edit-save {
+  min-height: 24px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--accent, #2f6b57);
+  color: #fff;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 8px;
+}
+
 .editor-surface .math-edit-panel .math-editor {
   width: 100%;
   min-height: 34px;
@@ -3914,6 +3977,16 @@ input[type="range"] {
   text-align: center;
 }
 
+.editor-surface .math-node.is-invalid .math-render {
+  border-bottom: 2px solid #c2413b;
+}
+
+.editor-surface .math-error {
+  color: #b42318;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .editor-surface .math-preview-empty {
   color: #9aa39d;
   font-size: 12px;
@@ -3921,4 +3994,356 @@ input[type="range"] {
 
 .editor-surface .math-block .math-editor {
   resize: vertical;
+}
+
+/* Craft-inspired workspace: keep the existing editor behavior, simplify the chrome. */
+:root {
+  background: #ffffff;
+  color: #26272a;
+}
+
+.app-shell {
+  --app-bg: #ffffff;
+  --chrome-surface: #ffffff;
+  --panel-bg: #fafafa;
+  --panel-border: #e8e9eb;
+  --panel-inset: transparent;
+  --surface-soft: #ffffff;
+  --surface-muted: #f6f6f7;
+  --surface-hover: #f1f5ff;
+  --surface-active: #edf3ff;
+  --surface-raised: #ffffff;
+  --paper-bg: #ffffff;
+  --paper-border: #e8eaed;
+  --text-color: #292a2d;
+  --muted-text: #6d7178;
+  --subtle-text: #9da1a8;
+  --accent-color: #4f7ff2;
+  --accent-strong: #3f6ddd;
+  --accent-soft: #eaf1ff;
+  --accent-soft-strong: #dce9ff;
+  --line-soft: #ededee;
+  --line-strong: #dfe1e4;
+  --selection-bg: #dfeaff;
+  --shadow-soft: none;
+  --shadow-floating: 0 18px 40px rgba(31, 35, 43, 0.12);
+  --shadow-paper: 0 8px 28px rgba(31, 35, 43, 0.04);
+  grid-template-columns: 304px minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+  background: #ffffff;
+}
+
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.sidebar,
+.workspace {
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.sidebar {
+  gap: 12px;
+  border-right: 0;
+  border-radius: 0;
+  background: #ffffff;
+  padding: 18px 14px 14px;
+}
+
+.brand-row.compact {
+  padding: 8px 6px 4px;
+}
+
+.workspace-badge strong {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.workspace-badge span,
+.search-box-label,
+.sidebar-list-header strong {
+  display: none;
+}
+
+.icon-button,
+.tool-button {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: transparent;
+}
+
+.icon-button:hover,
+.icon-button.is-active,
+.tool-button:hover,
+.tool-button.is-active {
+  border-color: transparent;
+  background: #eef3ff;
+  box-shadow: none;
+  color: var(--accent-color);
+  transform: none;
+}
+
+.sidebar-rail .primary-icon {
+  border: 1px solid #e7e9ed;
+  background: #ffffff;
+  box-shadow: 0 10px 22px rgba(31, 35, 43, 0.08);
+  color: #3b4048;
+}
+
+.sidebar-rail .primary-icon:hover {
+  border-color: #dbe5fb;
+  background: #eef3ff;
+  box-shadow: 0 12px 24px rgba(79, 127, 242, 0.14);
+  color: var(--accent-color);
+}
+
+.new-note-button {
+  height: 38px;
+  justify-content: flex-start;
+  border-radius: 10px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-color);
+  font-size: 13px;
+  font-weight: 550;
+  padding: 0 10px;
+}
+
+.new-note-button:hover {
+  background: #f0f3f8;
+  box-shadow: none;
+}
+
+.search-box,
+.note-list,
+.recent-timeline {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.search-box {
+  min-height: 38px;
+  border: 1px solid #eceef1;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 0 10px;
+}
+
+.view-switch {
+  grid-template-columns: 1fr;
+  gap: 2px;
+}
+
+.view-switch button {
+  min-height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  color: #50545b;
+  font-weight: 500;
+}
+
+.view-switch button:hover,
+.view-switch button.is-active {
+  border-color: transparent;
+  background: #eaecef;
+  box-shadow: none;
+  color: #292a2d;
+  transform: none;
+}
+
+.sidebar-mode-switch,
+.sidebar-summary-card {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.sidebar-mode-switch {
+  margin: 0 -4px -4px;
+  border-top: 1px solid #ececef;
+  border-radius: 0;
+}
+
+.note-item {
+  border-radius: 8px;
+  padding: 9px 10px;
+}
+
+.note-item:hover,
+.note-item.is-active,
+.note-item:focus-visible {
+  border-color: transparent;
+  background: #f0f4ff;
+  box-shadow: none;
+  transform: none;
+}
+
+.note-item::before {
+  display: none;
+}
+
+.workspace {
+  grid-template-rows: 48px minmax(0, 1fr);
+  border-radius: 0;
+  background: #ffffff;
+}
+
+.topbar {
+  min-height: 48px;
+  border-bottom: 1px solid #ececef;
+  padding: 6px 22px;
+}
+
+.topbar-leading {
+  align-items: center;
+}
+
+.workspace-crumb {
+  display: none;
+}
+
+.title-group {
+  display: flex;
+  justify-content: center;
+  position: relative;
+}
+
+.meta-summary-row {
+  display: flex;
+  min-width: 0;
+}
+
+.meta-input-row {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  z-index: 20;
+  min-width: 300px;
+  padding: 10px;
+  border: 1px solid #e7e9ed;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 12px 28px rgba(31, 35, 43, 0.12);
+}
+
+.title-input {
+  width: min(420px, 52vw);
+  border: 0;
+  color: #9a9da3;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+}
+
+.topbar-actions {
+  padding: 0;
+}
+
+.save-status,
+.doc-stats {
+  height: 28px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.document-stage {
+  grid-template-columns: minmax(0, 1fr) 278px;
+  gap: 0;
+  padding: 0;
+  background: #ffffff;
+}
+
+.editor-column {
+  padding: 20px 34px 0;
+}
+
+.editor-wrap {
+  width: min(100%, 1320px);
+  min-height: 0;
+  margin: 0 auto;
+  border: 1px solid #e8eaed;
+  border-radius: 24px 24px 0 0;
+  background: #ffffff;
+  padding: 0;
+}
+
+.editor-surface {
+  width: 100%;
+  min-height: max(640px, calc(100dvh - 110px));
+  margin: 0;
+  border: 0;
+  border-radius: 24px 24px 0 0;
+  box-shadow: none;
+  padding: 68px clamp(38px, 7vw, 160px) 120px;
+}
+
+.format-panel {
+  gap: 10px;
+  border: 0;
+  border-radius: 0;
+  background: #ffffff;
+  box-shadow: none;
+  backdrop-filter: none;
+  padding: 14px 12px;
+}
+
+.format-panel-header,
+.format-panel-group {
+  border-color: transparent;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 8px 4px;
+}
+
+.format-panel-header strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.format-panel-group:hover {
+  border-color: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.format-button,
+.format-icon-button,
+.format-panel-toggle,
+.format-panel-chip {
+  border-color: #eceef2;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+@media (max-width: 1279px) {
+  .document-stage {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 980px) {
+  .app-shell {
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .editor-column {
+    padding: 12px 14px 0;
+  }
+
+  .document-stage {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .format-panel {
+    border: 0;
+    border-radius: 16px;
+  }
 }
