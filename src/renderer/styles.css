@@ -4330,8 +4330,9 @@ input[type="range"] {
 }
 
 @media (max-width: 980px) {
-  .app-shell {
-    grid-template-columns: 64px minmax(0, 1fr);
+  .app-shell,
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .editor-column {

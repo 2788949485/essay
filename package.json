@@ -36,7 +36,7 @@
     "appId": "com.suiji.desktop",
     "productName": "随记",
     "directories": {
-      "output": "release"
+      "output": "release-next8"
     },
     "files": [
       "dist/**/*",
