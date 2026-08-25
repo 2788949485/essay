@@ -2,6 +2,8 @@ import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { SaveState } from "../constants";
 
 type TopBarProps = {
+  /** 回收站笔记：标题与属性只读 */
+  readOnly?: boolean;
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
   title: string;
@@ -30,6 +32,7 @@ const STATUS_TEXT: Record<SaveState, string> = {
 
 export function TopBar(props: TopBarProps) {
   const {
+    readOnly = false,
     sidebarCollapsed,
     onToggleSidebar,
     title,
@@ -77,12 +80,14 @@ export function TopBar(props: TopBarProps) {
             value={title}
             onChange={(event) => onTitleChange(event.target.value)}
             placeholder="未命名记录"
+            disabled={readOnly}
           />
           <div className="meta-summary-row">
             <button
               type="button"
               className={metaEditorOpen ? "meta-summary is-open" : "meta-summary"}
               onClick={onToggleMetaEditor}
+              disabled={readOnly}
             >
               {folderPreview ? <span className="meta-chip meta-folder-chip">文件夹 · {folderPreview}</span> : null}
               {metaTagsPreview.slice(0, 3).map((tag) => (
@@ -95,7 +100,7 @@ export function TopBar(props: TopBarProps) {
               <span className="meta-summary-action">{metaEditorOpen ? "收起属性" : "编辑属性"}</span>
             </button>
           </div>
-          {metaEditorOpen ? (
+          {metaEditorOpen && !readOnly ? (
             <div className="meta-input-row">
               <input
                 className="tags-input"

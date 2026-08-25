@@ -83,13 +83,7 @@ export function FormatPanel(props: FormatPanelProps) {
     >
       <div className="format-panel-header">
         <strong>格式</strong>
-        {isFloatingToolViewport ? (
-          <span className="format-panel-chip">Aa</span>
-        ) : (
-          <button type="button" className="format-panel-toggle" aria-label="格式面板">
-            Aa
-          </button>
-        )}
+        <span className="format-panel-chip">Aa</span>
       </div>
 
       <div className="format-panel-group">

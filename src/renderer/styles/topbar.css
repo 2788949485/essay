@@ -123,6 +123,12 @@
   gap: 6px;
 }
 
+.title-input:disabled {
+  color: var(--muted-text);
+  cursor: default;
+  opacity: 1;
+}
+
 .title-input {
   width: min(420px, 52vw);
   min-width: 0;

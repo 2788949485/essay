@@ -29,7 +29,6 @@
   font-weight: 650;
 }
 
-.format-panel-toggle,
 .format-panel-chip {
   display: inline-flex;
   min-width: 42px;
@@ -43,16 +42,6 @@
   padding: 0 12px;
   font-size: 14px;
   font-weight: 650;
-  transition:
-    border-color var(--motion-fast) ease,
-    background-color var(--motion-base) var(--ease-smooth),
-    color var(--motion-base) var(--ease-smooth);
-}
-
-.format-panel-toggle:hover {
-  border-color: var(--line-strong);
-  background: var(--surface-hover);
-  color: var(--accent-color);
 }
 
 .format-panel-group {

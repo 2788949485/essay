@@ -1,6 +1,8 @@
 import { Search } from "lucide-react";
 
 type FindPanelProps = {
+  /** 回收站笔记为只读，隐藏替换控件 */
+  readOnly?: boolean;
   findInputRef: React.Ref<HTMLInputElement>;
   findQuery: string;
   onFindQueryChange: (value: string) => void;
@@ -18,6 +20,7 @@ type FindPanelProps = {
 
 export function FindPanel(props: FindPanelProps) {
   const {
+    readOnly = false,
     findInputRef,
     findQuery,
     onFindQueryChange,
@@ -57,7 +60,7 @@ export function FindPanel(props: FindPanelProps) {
               }
             }}
           />
-          {replaceOpen ? (
+          {replaceOpen && !readOnly ? (
             <input
               value={replaceValue}
               placeholder="替换为"
@@ -86,10 +89,12 @@ export function FindPanel(props: FindPanelProps) {
             下一个
           </button>
         </div>
-        <button type="button" className={replaceOpen ? "is-active" : undefined} onClick={onToggleReplace}>
-          替换
-        </button>
-        {replaceOpen ? (
+        {!readOnly ? (
+          <button type="button" className={replaceOpen ? "is-active" : undefined} onClick={onToggleReplace}>
+            替换
+          </button>
+        ) : null}
+        {replaceOpen && !readOnly ? (
           <div className="find-action-group">
             <button type="button" onClick={onReplaceCurrent}>
               替换当前

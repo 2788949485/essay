@@ -122,6 +122,8 @@ export default function App() {
   const hoveredBlockRef = useRef<HTMLElement | null>(null);
   const currentBlockRef = useRef<HTMLElement | null>(null);
   const outlineTimerRef = useRef<number | null>(null);
+  const settingsSnapshotRef = useRef<AppSettings | null>(null);
+  const settingsRef = useRef<AppSettings | null>(null);
   const editorUiSigRef = useRef("");
   const [, setEditorUiTick] = useState(0);
   const activeIdRef = useRef("");
@@ -480,6 +482,10 @@ export default function App() {
   }, [saveState]);
 
   useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  useEffect(() => {
     if (!linkDialog) return;
     window.setTimeout(() => {
       linkInputRef.current?.focus();
@@ -560,7 +566,15 @@ export default function App() {
       void (async () => {
         const loaded = await window.suiji.listNotes();
         setNotes(loaded);
-        if (id) setActiveId(id);
+        if (id) {
+          setActiveId(id);
+          return;
+        }
+        // 外部变更（如恢复备份）后当前笔记可能已不存在，回退到第一篇
+        setActiveId((current) => {
+          if (loaded.some((note) => note.id === current)) return current;
+          return loaded[0]?.id || "";
+        });
       })();
     });
     return dispose;
@@ -577,7 +591,7 @@ export default function App() {
 
   function openFindPanel(withReplace: boolean) {
     setFindOpen(true);
-    setReplaceOpen(withReplace);
+    setReplaceOpen(withReplace && !activeNote?.trashedAt);
     // 面板已打开时 autoFocus 不会再次生效，手动聚焦
     window.setTimeout(() => {
       findInputRef.current?.focus();
@@ -748,6 +762,8 @@ export default function App() {
     const disposeSettings =
       typeof window.suiji.onOpenSettings === "function"
         ? window.suiji.onOpenSettings(() => {
+            // 打开时拍快照，取消时回滚预览更改（主题、排版等即时生效项）
+            settingsSnapshotRef.current = settingsRef.current;
             setSettingsOpen(true);
           })
         : () => {};
@@ -926,7 +942,7 @@ export default function App() {
   }
 
   function handleReplaceCurrent() {
-    if (!editor || findMatches.length === 0) return;
+    if (!editor || activeNote?.trashedAt || findMatches.length === 0) return;
     const match = findMatches[findIndex];
     editor.view.dispatch(editor.state.tr.insertText(replaceValue, match.from, match.to));
     markDirty();
@@ -937,7 +953,7 @@ export default function App() {
   }
 
   function handleReplaceAll() {
-    if (!editor || !findQuery) return;
+    if (!editor || activeNote?.trashedAt || !findQuery) return;
     const matches = findText();
     if (matches.length === 0) return;
     const tr = editor.state.tr;
@@ -1149,6 +1165,8 @@ export default function App() {
     setDataActionStatus(`已导入 ${imported.length} 个 Markdown 文件`);
   }
 
+  const hotkeyTestSeqRef = useRef(0);
+
   async function handleHotkeyRecord(event: React.KeyboardEvent<HTMLInputElement>) {
     event.preventDefault();
     event.stopPropagation();
@@ -1159,7 +1177,10 @@ export default function App() {
     }
     setHotkeyDraft(next);
     setHotkeyStatus("正在检测冲突...");
+    // 连续按键时只接受最后一次检测结果，避免乱序返回覆盖
+    const seq = ++hotkeyTestSeqRef.current;
     const available = await window.suiji.testHotkey(next);
+    if (seq !== hotkeyTestSeqRef.current) return;
     setHotkeyStatus(available ? "快捷键可用" : "快捷键可能已被占用，建议更换");
   }
 
@@ -1172,6 +1193,11 @@ export default function App() {
 
   function closeSettings() {
     if (settingsSaving) return;
+    // 未保存而关闭：回滚弹窗内即时预览的更改
+    if (settingsSnapshotRef.current) {
+      setSettings(settingsSnapshotRef.current);
+      settingsSnapshotRef.current = null;
+    }
     setSettingsOpen(false);
     setCurrentPrivacyPinDraft("");
     setPrivacyPinDraft("");
@@ -1207,6 +1233,7 @@ export default function App() {
       setPrivacyPinDraft("");
       setClearPrivacyPin(false);
       setDataActionStatus("");
+      settingsSnapshotRef.current = null;
       setSettingsOpen(false);
       if (next.storageEncrypted && !next.storageUnlocked) {
         setPrivacyLocked(true);
@@ -1608,9 +1635,13 @@ export default function App() {
         onQueryChange={setQuery}
         viewMode={viewMode}
         onViewModeChange={(mode) => {
-          setViewMode(mode);
-          const next = firstVisibleNote(notes, mode);
-          if (next) setActiveId(next.id);
+          void (async () => {
+            // 先落盘当前未保存的修改，再切换，避免 650ms 防抖窗口内丢内容
+            await saveActive({ skipClean: true });
+            setViewMode(mode);
+            const next = firstVisibleNote(notes, mode);
+            if (next) setActiveId(next.id);
+          })();
         }}
         allFolders={allFolders}
         selectedFolder={selectedFolder}
@@ -1635,6 +1666,7 @@ export default function App() {
 
       <section className="workspace">
         <TopBar
+          readOnly={editorDisabled}
           sidebarCollapsed={sidebarCollapsed}
           onToggleSidebar={() => setSidebarCollapsed((current) => !current)}
           title={title}
@@ -1666,6 +1698,7 @@ export default function App() {
           <div className="editor-column">
             {findOpen ? (
               <FindPanel
+                readOnly={editorDisabled}
                 findInputRef={findInputRef}
                 findQuery={findQuery}
                 onFindQueryChange={setFindQuery}
