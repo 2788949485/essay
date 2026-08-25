@@ -70,7 +70,7 @@ export function buildApplicationMenuTemplate(callbacks: ShellCallbacks): MenuIte
         { type: "separator" },
         {
           label: "隐藏窗口",
-          accelerator: "Escape",
+          // 不绑定 Escape：Esc 是界面里的取消/关闭键（弹窗、查找面板），隐藏走侧栏按钮或全局热键
           click: callbacks.hideWindow
         },
         {

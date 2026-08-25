@@ -822,8 +822,7 @@ function updateNoteMetaFields(
     favoriteAt?: string | null;
     archivedAt?: string | null;
     trashedAt?: string | null;
-  },
-  updatedAt: string
+  }
 ) {
   const columns: string[] = [];
   const values: (string | null)[] = [];
@@ -843,8 +842,7 @@ function updateNoteMetaFields(
     columns.push("trashed_at = ?");
     values.push(patch.trashedAt ?? null);
   }
-  columns.push("updated_at = ?");
-  values.push(updatedAt, id);
+  values.push(id);
   dbExec(`UPDATE notes SET ${columns.join(", ")} WHERE id = ?`, values);
 }
 
@@ -1341,7 +1339,7 @@ async function togglePinNote(id: string): Promise<NoteRecord> {
   const note = await readNote(id);
   const now = new Date().toISOString();
   await backupExistingNote(id);
-  updateNoteMetaFields(id, { pinnedAt: note.pinnedAt ? null : now }, now);
+  updateNoteMetaFields(id, { pinnedAt: note.pinnedAt ? null : now });
   notesDbDirty = true;
   const latest = await finalizeNoteWrite(id);
   await persistNotesDatabase();
@@ -1353,7 +1351,7 @@ async function toggleFavoriteNote(id: string): Promise<NoteRecord> {
   const note = await readNote(id);
   const now = new Date().toISOString();
   await backupExistingNote(id);
-  updateNoteMetaFields(id, { favoriteAt: note.favoriteAt ? null : now }, now);
+  updateNoteMetaFields(id, { favoriteAt: note.favoriteAt ? null : now });
   notesDbDirty = true;
   const latest = await finalizeNoteWrite(id);
   await persistNotesDatabase();
@@ -1365,7 +1363,7 @@ async function toggleArchiveNote(id: string): Promise<NoteRecord> {
   const note = await readNote(id);
   const now = new Date().toISOString();
   await backupExistingNote(id);
-  updateNoteMetaFields(id, { archivedAt: note.archivedAt ? null : now }, now);
+  updateNoteMetaFields(id, { archivedAt: note.archivedAt ? null : now });
   notesDbDirty = true;
   const latest = await finalizeNoteWrite(id);
   await persistNotesDatabase();
@@ -1541,7 +1539,7 @@ async function deleteNote(id: string) {
   await readNote(id);
   const now = new Date().toISOString();
   await backupExistingNote(id, "deleted");
-  updateNoteMetaFields(id, { trashedAt: now }, now);
+  updateNoteMetaFields(id, { trashedAt: now });
   notesDbDirty = true;
   await finalizeNoteWrite(id);
   await persistNotesDatabase();
@@ -1552,7 +1550,7 @@ async function restoreNote(id: string): Promise<NoteRecord> {
   await readNote(id);
   const now = new Date().toISOString();
   await backupExistingNote(id, "restore-trash");
-  updateNoteMetaFields(id, { trashedAt: null }, now);
+  updateNoteMetaFields(id, { trashedAt: null });
   notesDbDirty = true;
   const latest = await finalizeNoteWrite(id);
   await persistNotesDatabase();

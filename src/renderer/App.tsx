@@ -66,6 +66,14 @@ import { ConfirmDialog, HistoryModal, LinkDialog, PrivacyLock } from "./componen
 
 type ActiveEditor = NonNullable<ReturnType<typeof useEditor>>;
 
+// 各视图按各自的语义时间排序：回收站按删除时间、收藏按收藏时间、归档按归档时间、最近按编辑时间
+const VIEW_TIME_FIELD: Partial<Record<ViewMode, "trashedAt" | "favoriteAt" | "archivedAt" | "updatedAt">> = {
+  trash: "trashedAt",
+  favorites: "favoriteAt",
+  archive: "archivedAt",
+  recent: "updatedAt"
+};
+
 export default function App() {
   const [notes, setNotes] = useState<NoteRecord[]>([]);
   const [activeId, setActiveId] = useState<string>("");
@@ -700,7 +708,19 @@ export default function App() {
 
   const saveActive = useCallback(async (options?: { skipClean?: boolean }) => {
     if (!editor || !activeNote) return;
+    // 回收站笔记是只读的，任何对它的保存都是错误路径
+    if (activeNote.trashedAt) return activeNote;
     if (options?.skipClean && saveStateRef.current !== "dirty") {
+      return activeNote;
+    }
+    // 守卫：自加载以来没有任何编辑（正文未改且标题/标签/文件夹未变）时不写库，
+    // 避免视图切换等路径上的误触发把 updatedAt 刷新成当前时间
+    if (
+      revisionRef.current === 0 &&
+      title === activeNote.title &&
+      parseTagsInput(tagsDraft).join(",") === activeNote.tags.join(",") &&
+      normalizeFolderInput(folderDraft) === activeNote.folder
+    ) {
       return activeNote;
     }
 
@@ -812,10 +832,10 @@ export default function App() {
 
   const filteredNotes = useMemo(() => {
     const keyword = searchSyntax.text;
-    const source =
-      viewMode === "recent"
-        ? [...notes].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
-        : notes;
+    const timeField = VIEW_TIME_FIELD[viewMode];
+    const source = timeField
+      ? [...notes].sort((a, b) => Date.parse(b[timeField] ?? "") - Date.parse(a[timeField] ?? ""))
+      : notes;
     return source.filter((note) => {
       if (searchSyntax.trash) {
         if (!note.trashedAt) return false;
@@ -878,9 +898,11 @@ export default function App() {
   }
 
   function firstVisibleNote(source: NoteRecord[], mode = viewMode) {
-    // recent 视图按编辑时间排序，与其他视图（服务端排序：置顶优先）保持一致
-    const ordered =
-      mode === "recent" ? [...source].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)) : sortNotes(source);
+    // 与 filteredNotes 一致：有语义时间的视图按该时间排序，其余用服务端排序（置顶优先）
+    const timeField = VIEW_TIME_FIELD[mode];
+    const ordered = timeField
+      ? [...source].sort((a, b) => Date.parse(b[timeField] ?? "") - Date.parse(a[timeField] ?? ""))
+      : sortNotes(source);
     return ordered.find((note) => {
       if (mode === "trash") return Boolean(note.trashedAt);
       if (note.trashedAt) return false;

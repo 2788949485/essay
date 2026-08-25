@@ -25,6 +25,16 @@ describe("app shell templates", () => {
     expect(labels).toContain("设置");
   });
 
+  it("隐藏窗口不占用 Escape（Esc 保留给弹窗/查找的取消）", () => {
+    const template = buildApplicationMenuTemplate(callbacks());
+    const fileMenu = template[0];
+    const hideItem = (fileMenu.submenu as Array<{ label?: string; accelerator?: string }>).find(
+      (item) => item.label === "隐藏窗口"
+    );
+    expect(hideItem).toBeTruthy();
+    expect(hideItem?.accelerator).toBeUndefined();
+  });
+
   it("托盘菜单包含快捷键展示和剪贴板入口", () => {
     const template = buildTrayMenuTemplate(
       {
