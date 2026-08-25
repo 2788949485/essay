@@ -124,6 +124,58 @@ export function SettingsModal(props: SettingsModalProps) {
             </div>
           </section>
 
+          <section className="settings-group" aria-label="排版">
+            <div className="settings-group-header">
+              <div>
+                <span className="settings-group-kicker">排版</span>
+                <h3>阅读体验</h3>
+                <p>调整正文字号、行宽与行高，立即作用于编辑区。</p>
+              </div>
+            </div>
+            <div className="settings-group-grid">
+              <label className="settings-field">
+                <span>正文字号（{settings?.fontSize ?? 16}px）</span>
+                <input
+                  type="range"
+                  min={13}
+                  max={24}
+                  step={1}
+                  value={settings?.fontSize ?? 16}
+                  onChange={(event) =>
+                    onSettingsChange((current) => ({ ...current, fontSize: Number(event.target.value) }))
+                  }
+                />
+              </label>
+              <label className="settings-field">
+                <span>行宽（{settings?.lineWidth ?? 880}px）</span>
+                <input
+                  type="range"
+                  min={640}
+                  max={1600}
+                  step={20}
+                  value={settings?.lineWidth ?? 880}
+                  onChange={(event) =>
+                    onSettingsChange((current) => ({ ...current, lineWidth: Number(event.target.value) }))
+                  }
+                />
+                <small className="setting-hint">全屏或大屏下可调宽，减少两侧留白。</small>
+              </label>
+              <label className="settings-field">
+                <span>行高（{(settings?.lineHeight ?? 1.72).toFixed(2)}）</span>
+                <input
+                  type="range"
+                  min={1.35}
+                  max={2.2}
+                  step={0.02}
+                  value={settings?.lineHeight ?? 1.72}
+                  onChange={(event) =>
+                    onSettingsChange((current) => ({ ...current, lineHeight: Number(event.target.value) }))
+                  }
+                />
+              </label>
+            </div>
+          </section>
+
           <section className="settings-group settings-group-security" aria-label="安全与隐私">
             <div className="settings-group-header">
               <div>

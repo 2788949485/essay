@@ -438,7 +438,7 @@ function sanitizeSettingsPayload(raw: unknown): SettingsUpdatePayload {
     theme: payload.theme === "dark" ? "dark" : "light",
     fontFamily: coerceString(payload.fontFamily, "", 120),
     fontSize: Math.min(Math.max(Number(payload.fontSize) || 16, 13), 24),
-    lineWidth: Math.min(Math.max(Number(payload.lineWidth) || 880, 640), 1200),
+    lineWidth: Math.min(Math.max(Number(payload.lineWidth) || 880, 640), 1600),
     lineHeight: Math.min(Math.max(Number(payload.lineHeight) || 1.72, 1.35), 2.2),
     currentPrivacyPin:
       typeof payload.currentPrivacyPin === "string" ? payload.currentPrivacyPin.slice(0, MAX_PIN_LENGTH) : undefined,
