@@ -147,13 +147,13 @@ export function SettingsModal(props: SettingsModalProps) {
                 />
               </label>
               <label className="settings-field">
-                <span>行宽（{settings?.lineWidth ?? 880}px）</span>
+                <span>行宽（{settings?.lineWidth ?? 1120}px）</span>
                 <input
                   type="range"
                   min={640}
                   max={1600}
                   step={20}
-                  value={settings?.lineWidth ?? 880}
+                  value={settings?.lineWidth ?? 1120}
                   onChange={(event) =>
                     onSettingsChange((current) => ({ ...current, lineWidth: Number(event.target.value) }))
                   }

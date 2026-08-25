@@ -122,6 +122,8 @@ export default function App() {
   const hoveredBlockRef = useRef<HTMLElement | null>(null);
   const currentBlockRef = useRef<HTMLElement | null>(null);
   const outlineTimerRef = useRef<number | null>(null);
+  const editorUiSigRef = useRef("");
+  const [, setEditorUiTick] = useState(0);
   const activeIdRef = useRef("");
   const revisionRef = useRef(0);
   const saveStateRef = useRef<SaveState>("idle");
@@ -175,6 +177,9 @@ export default function App() {
     content: activeNote?.content,
     editable: true,
     autofocus: "end",
+    // 关闭 tiptap 默认的"每次 transaction 重渲染"：拖选时每秒几十个 transaction
+    // 会导致整个 App 重渲染、选区闪烁。UI 状态改为按签名变化才刷新（见 refreshEditorUi）
+    shouldRerenderOnTransaction: false,
     editorProps: {
       attributes: {
         class: "editor-surface",
@@ -213,6 +218,10 @@ export default function App() {
         }
         return false;
       }
+    },
+    onTransaction: ({ editor }) => {
+      // 覆盖选区移动、文档修改、storedMarks（空选区切换加粗等）全部 UI 相关变化
+      refreshEditorUi(editor);
     },
     onSelectionUpdate: ({ editor }) => {
       setTableToolbarVisible(editor.isActive("table") && !activeNote?.trashedAt);
@@ -268,6 +277,40 @@ export default function App() {
     if (next) next.classList.add("editor-interactive-block");
     syncInteractiveBlockElement(previous);
     syncInteractiveBlockElement(next);
+  }
+
+  // 汇总会影响 UI（格式按钮高亮、块格式面板）的编辑器状态签名，变化才触发重渲染
+  function refreshEditorUi(instance: ActiveEditor) {
+    const format = getCurrentBlockFormat(instance);
+    const signature = [
+      instance.isActive("bold"),
+      instance.isActive("italic"),
+      instance.isActive("underline"),
+      instance.isActive("strike"),
+      instance.isActive("highlight"),
+      instance.isActive("link"),
+      instance.isActive("bulletList"),
+      instance.isActive("orderedList"),
+      instance.isActive("taskList"),
+      instance.isActive("codeBlock"),
+      instance.isActive("collapsibleBlock"),
+      instance.isActive({ textAlign: "left" }),
+      instance.isActive({ textAlign: "center" }),
+      instance.isActive({ textAlign: "right" }),
+      instance.isActive("heading", { level: 1 }),
+      instance.isActive("heading", { level: 2 }),
+      instance.isActive("heading", { level: 3 }),
+      instance.isActive("paragraph"),
+      format.textRole,
+      format.focusMode,
+      format.cardMode,
+      format.colorToken,
+      format.customColor
+    ].join("|");
+    if (signature !== editorUiSigRef.current) {
+      editorUiSigRef.current = signature;
+      setEditorUiTick((tick) => tick + 1);
+    }
   }
 
   function syncCurrentEditorBlock() {
@@ -466,6 +509,7 @@ export default function App() {
     setEditorText(getContentPlainText(activeNote.content));
     setOutlineItems(extractOutline(editor));
     setTableToolbarVisible(editor.isActive("table") && !activeNote.trashedAt);
+    refreshEditorUi(editor);
     window.setTimeout(() => editor.commands.focus("end"), 0);
     revisionRef.current = 0;
     setSaveState("saved");
@@ -1538,7 +1582,7 @@ export default function App() {
     .filter(Boolean)
     .join(" ");
   const appStyle = {
-    "--editor-width": `${settings?.lineWidth ?? 880}px`,
+    "--editor-width": `${settings?.lineWidth ?? 1120}px`,
     "--editor-font-family": settings?.fontFamily?.trim() || undefined,
     "--editor-font-size": `${settings?.fontSize ?? 16}px`,
     "--editor-line-height": settings?.lineHeight ?? 1.72
