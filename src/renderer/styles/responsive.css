@@ -1,0 +1,346 @@
+/* ============================================================
+   响应式：浮动格式面板（1280）、紧凑侧栏（980）、窄屏（760）、矮屏（820h）
+   ============================================================ */
+
+@media (max-width: 1280px) {
+  .document-stage {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .format-panel {
+    position: fixed;
+    top: 118px;
+    right: 86px;
+    bottom: 18px;
+    z-index: 22;
+    width: min(340px, calc(100vw - 160px));
+    border: 1px solid var(--panel-border);
+    border-radius: 16px;
+    background: linear-gradient(180deg, var(--layer-surface-top) 0%, var(--layer-surface-bottom) 100%);
+    box-shadow: var(--shadow-floating);
+    transform: translate3d(24px, 0, 0);
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      transform var(--motion-panel) var(--ease-smooth),
+      opacity var(--motion-base) var(--ease-smooth);
+  }
+
+  .format-panel.is-open {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .format-panel-header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  .tool-rail {
+    position: fixed;
+    top: 118px;
+    right: 18px;
+    z-index: 23;
+    display: grid;
+    width: 56px;
+    gap: 10px;
+    border: 1px solid var(--panel-border);
+    border-radius: 20px;
+    background: linear-gradient(180deg, var(--layer-surface-top) 0%, var(--layer-surface-bottom) 100%);
+    box-shadow: var(--shadow-floating);
+    padding: 8px 6px;
+  }
+}
+
+@media (max-width: 980px) {
+  .app-shell,
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    bottom: 10px;
+    z-index: 30;
+    width: min(312px, calc(100vw - 48px));
+    border: 1px solid var(--panel-border);
+    border-radius: 16px;
+    box-shadow: var(--shadow-floating);
+    padding: 12px 10px 10px;
+    transition: transform 180ms ease, opacity 180ms ease;
+  }
+
+  .sidebar-body {
+    gap: 10px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 2px;
+  }
+
+  .sidebar-summary-card {
+    display: none;
+  }
+
+  .document-outline-list {
+    padding: 8px;
+  }
+
+  .outline-link {
+    height: 32px;
+    line-height: 32px;
+    padding: 0 9px;
+    font-size: 12px;
+  }
+
+  .sidebar-mode-switch {
+    --sidebar-mode-pad: 6px;
+    --sidebar-mode-gap: 6px;
+    min-height: 52px;
+  }
+
+  .sidebar-mode-button {
+    height: 40px;
+    font-size: 12px;
+  }
+
+  .app-shell.sidebar-collapsed .sidebar {
+    transform: translateX(calc(-100% - 24px));
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .workspace-nav-toggle {
+    display: inline-flex;
+  }
+
+  .topbar {
+    min-height: 48px;
+    padding: 6px 14px;
+  }
+
+  .editor-column {
+    padding: 12px 14px 0;
+  }
+
+  .find-panel {
+    top: 16px;
+    right: 14px;
+    left: 14px;
+    max-width: none;
+  }
+
+  .format-panel {
+    top: 96px;
+    right: 72px;
+    bottom: 12px;
+    width: min(320px, calc(100vw - 96px));
+    transform: translate3d(18px, 0, 0);
+  }
+
+  .tool-rail {
+    top: 96px;
+    right: 10px;
+    width: 50px;
+    gap: 8px;
+    padding: 6px 5px;
+  }
+
+  .tool-rail-button {
+    height: 40px;
+  }
+
+  .editor-surface {
+    min-height: max(480px, calc(100dvh - 96px));
+    border-radius: 18px 18px 0 0;
+    padding: 54px 28px 92px;
+  }
+
+  .note-item {
+    gap: 6px;
+  }
+
+  .note-item-header {
+    position: relative;
+    display: block;
+    min-height: 38px;
+  }
+
+  .note-title {
+    align-items: flex-start;
+    padding-right: 116px;
+  }
+
+  .note-actions {
+    position: absolute;
+    top: -2px;
+    right: 0;
+  }
+
+  .note-title-text {
+    display: -webkit-box;
+    line-height: 1.32;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+}
+
+@media (max-width: 760px) {
+  body {
+    min-height: 0;
+  }
+
+  .sidebar {
+    width: calc(100vw - 36px);
+  }
+
+  .topbar {
+    align-items: flex-start;
+  }
+
+  .topbar-actions {
+    gap: 6px;
+  }
+
+  .topbar-leading {
+    gap: 10px;
+  }
+
+  .title-input {
+    font-size: 13px;
+  }
+
+  .find-panel {
+    flex-wrap: wrap;
+  }
+
+  .find-panel-fields,
+  .find-panel-actions {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .find-panel-actions {
+    justify-content: flex-start;
+  }
+
+  .find-inputs {
+    width: 100%;
+  }
+
+  .find-panel input {
+    width: 100%;
+    flex: 1 1 0;
+  }
+
+  .format-panel {
+    top: 74px;
+    right: 70px;
+    bottom: 10px;
+    left: 12px;
+    width: auto;
+    padding: 12px;
+  }
+
+  .tool-rail {
+    top: 88px;
+    right: 10px;
+  }
+
+  .editor-surface {
+    min-height: max(360px, calc(100dvh - 92px));
+    padding: 44px 18px 88px;
+  }
+
+  .format-grid,
+  .format-grid.compact {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .format-grid.format-grid-text {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .format-button {
+    min-height: 44px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+
+  .settings-modal {
+    width: calc(100vw - 20px);
+    padding: 14px;
+    border-radius: 26px;
+  }
+
+  .settings-group {
+    padding: 14px;
+    border-radius: 22px;
+  }
+
+  .settings-group-header {
+    display: grid;
+  }
+
+  .settings-group-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settings-field-wide {
+    grid-column: auto;
+  }
+
+  .data-tool-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-height: 820px) {
+  .sidebar {
+    padding-top: 10px;
+    padding-bottom: 8px;
+  }
+
+  .brand-row.compact {
+    padding-bottom: 0;
+  }
+
+  .sidebar-body {
+    gap: 8px;
+  }
+
+  .sidebar-quick-actions {
+    gap: 6px;
+  }
+
+  .sidebar-chip,
+  .sidebar .icon-button {
+    height: 34px;
+  }
+
+  .document-outline-list {
+    gap: 2px;
+    padding: 6px;
+  }
+
+  .outline-link {
+    height: 30px;
+    line-height: 30px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  .sidebar-mode-switch {
+    --sidebar-mode-pad: 5px;
+    min-height: 50px;
+  }
+
+  .sidebar-mode-button {
+    height: 40px;
+    font-size: 12px;
+  }
+}

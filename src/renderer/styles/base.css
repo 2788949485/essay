@@ -1,0 +1,167 @@
+/* ============================================================
+   基础：reset、滚动条、焦点可见性、动效关键帧
+   ============================================================ */
+
+:root {
+  color: #292a2d;
+  background: #ffffff;
+  font-family:
+    "SF Pro Text", "PingFang SC", "Helvetica Neue", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 520px;
+  overflow: hidden;
+}
+
+.app-shell,
+.app-shell * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.app-shell ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.app-shell ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-shell ::-webkit-scrollbar-thumb {
+  min-height: 44px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(180deg, var(--scrollbar-thumb) 0%, var(--scrollbar-thumb-strong) 100%);
+  background-clip: padding-box;
+}
+
+.app-shell ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, var(--scrollbar-thumb-hover) 0%, var(--scrollbar-thumb-hover-strong) 100%);
+  background-clip: padding-box;
+}
+
+.app-shell ::-webkit-scrollbar-thumb:active {
+  background: linear-gradient(180deg, var(--scrollbar-thumb-active) 0%, var(--scrollbar-thumb-active-strong) 100%);
+  background-clip: padding-box;
+}
+
+.app-shell ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+/* 键盘焦点可见性：只给键盘用户显示焦点框，鼠标点击不触发 */
+.app-shell button:focus-visible,
+.app-shell input:focus-visible,
+.app-shell [role="button"]:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 1px;
+}
+
+input::placeholder {
+  color: var(--subtle-text);
+}
+
+::selection {
+  background: var(--selection-bg);
+}
+
+.hidden-file-input {
+  display: none;
+}
+
+.search-hit {
+  border-radius: 6px;
+  background: var(--highlight-bg);
+  color: inherit;
+  padding: 0 3px;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes panel-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes modal-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes settingsBusyPulse {
+  0%,
+  100% {
+    opacity: 0.36;
+    transform: scale(0.72);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell,
+  .app-shell *,
+  .app-shell *::before,
+  .app-shell *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

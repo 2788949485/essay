@@ -1,0 +1,136 @@
+/* ============================================================
+   设计变量：浅色为默认主题，深色通过 .theme-dark 覆盖
+   所有组件只允许引用这里的变量，不要写死颜色
+   ============================================================ */
+
+.app-shell {
+  /* 表面 */
+  --app-bg: #ffffff;
+  --panel-bg: #ffffff;
+  --panel-border: #e8e9eb;
+  --surface-soft: #ffffff;
+  --surface-muted: #f6f6f7;
+  --surface-hover: #eef3ff;
+  --surface-hover-soft: #f0f4ff;
+  --surface-press: #eceef2;
+  --surface-active: #edf3ff;
+  --surface-raised: #ffffff;
+  --paper-bg: #ffffff;
+  --paper-border: #e8eaed;
+
+  /* 文字 */
+  --text-color: #292a2d;
+  --muted-text: #6d7178;
+  --subtle-text: #7d828b;
+
+  /* 语义色 */
+  --accent-color: #4f7ff2;
+  --accent-strong: #3f6ddd;
+  --accent-soft: #eaf1ff;
+  --accent-soft-strong: #dce9ff;
+  --warning-color: #4f6f8f;
+  --danger-color: #b94b37;
+  --danger-strong: #ad4735;
+  --danger-soft: rgba(185, 75, 55, 0.12);
+  --link-color: #2f6db1;
+
+  /* 线条 */
+  --line-soft: #ededee;
+  --line-strong: #dfe1e4;
+
+  /* 内容 */
+  --selection-bg: #dfeaff;
+  --highlight-bg: #cdeee3;
+  --code-bg: #edf2f5;
+  --pre-bg: #213029;
+  --pre-text: #eef3f2;
+  --table-cell-bg: rgba(255, 255, 255, 0.46);
+  --collapsible-line: #d0d4df;
+
+  /* 弹层 */
+  --layer-surface-top: #ffffff;
+  --layer-surface-bottom: #ffffff;
+  --layer-section-top: #fafafb;
+  --layer-section-bottom: #f4f5f6;
+  --layer-outline: transparent;
+
+  /* 阴影与遮罩 */
+  --shadow-floating: 0 18px 40px rgba(31, 35, 43, 0.12);
+  --shadow-paper: 0 8px 28px rgba(31, 35, 43, 0.04);
+  --backdrop: rgba(31, 34, 36, 0.28);
+  --lock-backdrop: rgba(244, 247, 250, 0.78);
+
+  /* 滚动条 */
+  --scrollbar-thumb: rgba(123, 137, 153, 0.42);
+  --scrollbar-thumb-strong: rgba(104, 118, 133, 0.58);
+  --scrollbar-thumb-hover: rgba(108, 124, 141, 0.56);
+  --scrollbar-thumb-hover-strong: rgba(90, 106, 122, 0.72);
+  --scrollbar-thumb-active: rgba(88, 105, 122, 0.68);
+  --scrollbar-thumb-active-strong: rgba(72, 89, 105, 0.82);
+
+  /* 动效 */
+  --motion-fast: 140ms;
+  --motion-base: 180ms;
+  --motion-panel: 220ms;
+  --motion-slow: 280ms;
+  --ease-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-quick: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.app-shell.theme-dark {
+  --app-bg: #14181c;
+  --panel-bg: #1b2025;
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --surface-soft: rgba(255, 255, 255, 0.05);
+  --surface-muted: rgba(255, 255, 255, 0.04);
+  --surface-hover: rgba(134, 188, 171, 0.14);
+  --surface-hover-soft: rgba(134, 188, 171, 0.1);
+  --surface-press: rgba(255, 255, 255, 0.08);
+  --surface-active: rgba(134, 188, 171, 0.18);
+  --surface-raised: #20262c;
+  --paper-bg: #1e242a;
+  --paper-border: rgba(255, 255, 255, 0.08);
+
+  --text-color: #edf1f4;
+  --muted-text: #a0a8b1;
+  --subtle-text: #8b95a1;
+
+  --accent-color: #86bcab;
+  --accent-strong: #a1d5c2;
+  --accent-soft: rgba(134, 188, 171, 0.14);
+  --accent-soft-strong: rgba(134, 188, 171, 0.22);
+  --warning-color: #8fb4d6;
+  --danger-color: #f08c77;
+  --danger-strong: #f5a08d;
+  --danger-soft: rgba(240, 140, 119, 0.14);
+  --link-color: #95beff;
+
+  --line-soft: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.12);
+
+  --selection-bg: rgba(134, 188, 171, 0.22);
+  --highlight-bg: #245a52;
+  --code-bg: #293039;
+  --pre-bg: #12161b;
+  --pre-text: #edf1f4;
+  --table-cell-bg: rgba(255, 255, 255, 0.03);
+  --collapsible-line: rgba(255, 255, 255, 0.14);
+
+  --layer-surface-top: #262d33;
+  --layer-surface-bottom: #1f242a;
+  --layer-section-top: rgba(255, 255, 255, 0.05);
+  --layer-section-bottom: rgba(255, 255, 255, 0.03);
+  --layer-outline: rgba(255, 255, 255, 0.06);
+
+  --shadow-floating: 0 28px 62px rgba(0, 0, 0, 0.34);
+  --shadow-paper: 0 24px 62px rgba(0, 0, 0, 0.3);
+  --backdrop: rgba(6, 8, 10, 0.52);
+  --lock-backdrop: rgba(12, 15, 18, 0.74);
+
+  --scrollbar-thumb: rgba(176, 190, 206, 0.26);
+  --scrollbar-thumb-strong: rgba(151, 167, 183, 0.38);
+  --scrollbar-thumb-hover: rgba(191, 205, 220, 0.36);
+  --scrollbar-thumb-hover-strong: rgba(164, 180, 196, 0.5);
+  --scrollbar-thumb-active: rgba(205, 218, 231, 0.44);
+  --scrollbar-thumb-active-strong: rgba(180, 196, 212, 0.6);
+}

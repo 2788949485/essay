@@ -1,0 +1,142 @@
+/* ============================================================
+   数学公式：KaTeX 节点与编辑器
+   ============================================================ */
+
+.editor-surface .math-node[contenteditable="false"] {
+  user-select: none;
+}
+
+.editor-surface .math-node {
+  position: relative;
+}
+
+.editor-surface .math-inline {
+  display: inline-block;
+  vertical-align: baseline;
+  cursor: pointer;
+  padding: 0 1px;
+}
+
+.editor-surface .math-inline .katex {
+  font-size: 1.05em;
+}
+
+.editor-surface .math-block {
+  display: block;
+  text-align: center;
+  margin: 0.8em 0;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.editor-surface .math-node:hover .math-render {
+  background: color-mix(in srgb, var(--accent-soft) 62%, transparent);
+  border-radius: 5px;
+}
+
+.editor-surface .math-inline.is-selected,
+.editor-surface .math-block.is-selected {
+  background: var(--accent-soft);
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--accent-color);
+}
+
+.editor-surface .math-editor {
+  font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  width: 100%;
+  min-width: 80px;
+  padding: 4px 6px;
+  border: 1px solid var(--accent-color);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  color: var(--text-color);
+  resize: horizontal;
+  outline: none;
+}
+
+.editor-surface .math-edit-panel {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(100%, 760px);
+  padding: 9px;
+  border: 1px solid var(--accent-color);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-floating);
+  text-align: left;
+}
+
+.editor-surface .math-edit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--accent-color);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.editor-surface .math-edit-hint {
+  color: var(--subtle-text);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.editor-surface .math-edit-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-surface .math-edit-save {
+  min-height: 24px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--accent-color);
+  color: #fff;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 8px;
+}
+
+.editor-surface .math-edit-panel .math-editor {
+  width: 100%;
+  min-height: 34px;
+  box-sizing: border-box;
+  margin: 0;
+  border-color: var(--line-strong);
+  background: var(--paper-bg);
+}
+
+.editor-surface .math-live-preview {
+  display: block;
+  min-height: 28px;
+  padding: 7px 9px;
+  overflow-x: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: 5px;
+  background: var(--paper-bg);
+  text-align: center;
+}
+
+.editor-surface .math-node.is-invalid .math-render {
+  border-bottom: 2px solid var(--danger-color);
+}
+
+.editor-surface .math-error {
+  color: var(--danger-color);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.editor-surface .math-preview-empty {
+  color: var(--subtle-text);
+  font-size: 12px;
+}
+
+.editor-surface .math-block .math-editor {
+  resize: vertical;
+}
