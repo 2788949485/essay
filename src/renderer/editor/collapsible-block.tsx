@@ -251,8 +251,9 @@ function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes
 export const CollapsibleBlockExtension = TiptapNode.create({
   name: "collapsibleBlock",
   group: "block",
-  // 允许装普通正文（段落/列表/图片等），折叠块的核心用途就是把内容收起来
-  content: "block+",
+  // 允许装普通正文（段落/列表/图片等），折叠块的核心用途就是把内容收起来。
+  // 用 block* 而不是 block+：新建/历史文档里的空折叠块也是合法的
+  content: "block*",
   draggable: true,
   selectable: true,
   defining: true,
