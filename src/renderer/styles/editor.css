@@ -678,18 +678,71 @@
   border-radius: 0 0 18px 18px;
 }
 
+.editor-surface .code-block-language-wrap {
+  position: relative;
+}
+
 .editor-surface .code-block-language {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: none;
+  border-radius: 8px;
   background: transparent;
   color: var(--pre-text);
   font-size: 12px;
   opacity: 0.75;
-  outline: none;
+  padding: 3px 8px;
   cursor: pointer;
 }
 
-.editor-surface .code-block-language option {
+.editor-surface .code-block-language:hover,
+.editor-surface .code-block-language.is-open {
+  background: rgba(255, 255, 255, 0.1);
+  opacity: 1;
+}
+
+.editor-surface .code-block-language-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.editor-surface .code-block-language-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 61;
+  display: flex;
+  flex-direction: column;
+  min-width: 132px;
+  max-height: 236px;
+  overflow-y: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: linear-gradient(180deg, var(--layer-surface-top) 0%, var(--layer-surface-bottom) 100%);
+  box-shadow: var(--shadow-floating);
+  padding: 4px;
+}
+
+.editor-surface .code-block-language-menu button {
+  border: none;
+  border-radius: 8px;
+  background: transparent;
   color: var(--text-color);
+  font-size: 12px;
+  padding: 6px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.editor-surface .code-block-language-menu button:hover {
+  background: var(--surface-hover);
+}
+
+.editor-surface .code-block-language-menu button.is-active {
+  color: var(--accent-color);
+  font-weight: 600;
 }
 
 .editor-surface .code-block-copy {
