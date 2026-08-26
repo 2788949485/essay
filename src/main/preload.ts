@@ -25,6 +25,7 @@ const api = {
   deleteNote: (id: string) => ipcRenderer.invoke("notes:delete", id) as Promise<void>,
   restoreNote: (id: string) => ipcRenderer.invoke("notes:restore", id) as Promise<NoteRecord>,
   purgeNote: (id: string) => ipcRenderer.invoke("notes:purge", id) as Promise<void>,
+  renameTag: (from: string, to: string) => ipcRenderer.invoke("notes:rename-tag", from, to) as Promise<number>,
   listNoteBackups: (id: string) => ipcRenderer.invoke("notes:list-backups", id) as Promise<BackupEntry[]>,
   restoreNoteBackup: (id: string, fileName: string) =>
     ipcRenderer.invoke("notes:restore-backup-version", id, fileName) as Promise<NoteRecord>,

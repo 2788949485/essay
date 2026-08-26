@@ -214,8 +214,8 @@ export function parseTagsInput(value: string) {
 }
 
 export function normalizeFolderInput(value: string) {
-  // eslint-disable-next-line no-control-regex -- 清洗文件系统非法字符
   return value
+    // eslint-disable-next-line no-control-regex -- 清洗文件系统非法字符
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
     .trim()
     .slice(0, 40);
@@ -257,7 +257,8 @@ export function settingsPayload(settings: AppSettings, hotkey: string) {
     fontFamily: settings.fontFamily,
     fontSize: settings.fontSize,
     lineWidth: settings.lineWidth,
-    lineHeight: settings.lineHeight
+    lineHeight: settings.lineHeight,
+    trashRetentionDays: settings.trashRetentionDays
   };
 }
 
@@ -265,4 +266,37 @@ export function getCurrentFontPresetId(fontFamily: string | undefined): FontPres
   const current = fontFamily?.trim() || "";
   const matched = FONT_PRESETS.find((preset) => preset.family === current);
   return matched?.id ?? "default";
+}
+
+export type OpenTask = {
+  noteId: string;
+  noteTitle: string;
+  text: string;
+  updatedAt: string;
+};
+
+function nodePlainText(node: JSONContent): string {
+  const own = node.type === "text" ? (node.text ?? "") : "";
+  return own + (node.content ?? []).map(nodePlainText).join("");
+}
+
+export function collectOpenTasks(notes: NoteRecord[]): OpenTask[] {
+  const tasks: OpenTask[] = [];
+  for (const note of notes) {
+    if (note.trashedAt) continue;
+    const walk = (node: JSONContent | undefined) => {
+      if (!node) return;
+      if (node.type === "taskItem" && !node.attrs?.checked) {
+        tasks.push({
+          noteId: note.id,
+          noteTitle: note.title || "未命名记录",
+          text: nodePlainText(node).trim(),
+          updatedAt: note.updatedAt
+        });
+      }
+      node.content?.forEach(walk);
+    };
+    walk(note.content);
+  }
+  return tasks;
 }

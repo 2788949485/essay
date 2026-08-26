@@ -17,6 +17,8 @@ import TaskItem from "@tiptap/extension-task-item";
 import Highlight from "@tiptap/extension-highlight";
 import TextAlign from "@tiptap/extension-text-align";
 import Typography from "@tiptap/extension-typography";
+import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import { common, createLowlight } from "lowlight";
 import { SafeAutolink } from "./safe-link";
 import { MathExtensions } from "./math-extension";
 import { removeNoteMetadata, type NoteMetadataKind } from "../shared/note-metadata";
@@ -38,6 +40,7 @@ import {
 } from "./constants";
 import {
   buildPlainTextBlocks,
+  collectOpenTasks,
   describeRestoreFailures,
   extractOutline,
   formatHotkeyEvent,
@@ -56,15 +59,19 @@ import { BlockFormatExtension, getCurrentBlockFormat } from "./editor/block-form
 import { CollapsibleBlockExtension } from "./editor/collapsible-block";
 import { FindHighlightExtension, clearFindHighlights, setFindHighlights } from "./editor/find-highlight";
 import { findInteractiveEditorBlock } from "./editor/interactive-blocks";
+import { NoteLinkSuggestionExtension } from "./editor/note-link-suggestion";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { FindPanel } from "./components/FindPanel";
 import { FormatPanel } from "./components/FormatPanel";
 import { EditorArea } from "./components/EditorArea";
 import { SettingsModal } from "./components/SettingsModal";
-import { ConfirmDialog, HistoryModal, LinkDialog, PrivacyLock } from "./components/Modals";
+import { CommandPalette, type CommandPaletteItem } from "./components/CommandPalette";
+import { ConfirmDialog, HistoryModal, LinkDialog, PrivacyLock, PromptDialog } from "./components/Modals";
 
 type ActiveEditor = NonNullable<ReturnType<typeof useEditor>>;
+
+const lowlight = createLowlight(common);
 
 // 各视图按各自的语义时间排序：回收站按删除时间、收藏按收藏时间、归档按归档时间、最近按编辑时间
 const VIEW_TIME_FIELD: Partial<Record<ViewMode, "trashedAt" | "favoriteAt" | "archivedAt" | "updatedAt">> = {
@@ -122,6 +129,8 @@ export default function App() {
   const [linkDraft, setLinkDraft] = useState("");
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [tagRename, setTagRename] = useState<{ from: string; draft: string } | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const linkInputRef = useRef<HTMLInputElement | null>(null);
   const findInputRef = useRef<HTMLInputElement | null>(null);
@@ -135,6 +144,7 @@ export default function App() {
   const editorUiSigRef = useRef("");
   const [, setEditorUiTick] = useState(0);
   const activeIdRef = useRef("");
+  const notesRef = useRef<NoteRecord[]>([]);
   const revisionRef = useRef(0);
   const saveStateRef = useRef<SaveState>("idle");
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -149,8 +159,11 @@ export default function App() {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        heading: { levels: [1, 2, 3] }
+        heading: { levels: [1, 2, 3] },
+        // 代码块交给 CodeBlockLowlight 以获得语法高亮
+        codeBlock: false
       }),
+      CodeBlockLowlight.configure({ lowlight }),
       BlockFormatExtension,
       FindHighlightExtension,
       CollapsibleBlockExtension,
@@ -182,7 +195,10 @@ export default function App() {
         nested: true
       }),
       Highlight,
-      Typography
+      Typography,
+      NoteLinkSuggestionExtension.configure({
+        getNotes: () => notesRef.current.filter((note) => !note.trashedAt)
+      })
     ],
     content: activeNote?.content,
     editable: true,
@@ -197,10 +213,16 @@ export default function App() {
       },
       handleClick: (_view, _pos, event) => {
         const target = event.target instanceof HTMLElement ? event.target : null;
-        const link = target?.closest("a[href]") as HTMLAnchorElement | null;
-        if (!link?.href) return false;
+        const href = (target?.closest("a[href]") as HTMLAnchorElement | null)?.getAttribute("href") ?? "";
+        if (!href) return false;
         event.preventDefault();
-        void window.suiji.openExternalLink(link.href);
+        // 笔记互链：suiji-note://<id> 直接在应用内跳转
+        if (href.startsWith("suiji-note://")) {
+          const id = decodeURIComponent(href.slice("suiji-note://".length));
+          if (notesRef.current.some((note) => note.id === id)) void handleSelectNote(id);
+          return true;
+        }
+        void window.suiji.openExternalLink(href);
         return true;
       },
       handlePaste: (view, event) => {
@@ -497,6 +519,10 @@ export default function App() {
   }, [activeId]);
 
   useEffect(() => {
+    notesRef.current = notes;
+  }, [notes]);
+
+  useEffect(() => {
     saveStateRef.current = saveState;
   }, [saveState]);
 
@@ -647,6 +673,10 @@ export default function App() {
         event.preventDefault();
         insertMathBlock();
       }
+      if (event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen((current) => !current);
+      }
     }
 
     window.addEventListener("keydown", onKeyDown);
@@ -657,6 +687,14 @@ export default function App() {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
+      if (paletteOpen) {
+        setPaletteOpen(false);
+        return;
+      }
+      if (tagRename) {
+        setTagRename(null);
+        return;
+      }
       if (confirmDialog) {
         if (!confirmBusy) setConfirmDialog(null);
         return;
@@ -877,6 +915,8 @@ export default function App() {
     );
   }, [notes]);
 
+  const openTasks = useMemo(() => collectOpenTasks(notes), [notes]);
+
   function focusEditorSoon() {
     window.setTimeout(() => editor?.commands.focus("end"), 0);
   }
@@ -898,7 +938,7 @@ export default function App() {
       if (note.trashedAt) return false;
       if (mode === "favorites") return Boolean(note.favoriteAt);
       if (mode === "archive") return Boolean(note.archivedAt);
-      if (mode === "active") return !note.archivedAt;
+      if (mode === "active" || mode === "tasks") return !note.archivedAt;
       return true;
     });
   }
@@ -1134,6 +1174,75 @@ export default function App() {
       }
     });
   }
+
+  async function applyTagRename() {
+    if (!tagRename) return;
+    const from = tagRename.from;
+    const to = tagRename.draft.trim();
+    setTagRename(null);
+    if (!to || to === from) return;
+    await saveActive({ skipClean: true });
+    await window.suiji.renameTag(from, to);
+    const loaded = await reloadNotes();
+    const nextActive = loaded.find((note) => note.id === activeIdRef.current);
+    if (nextActive) setTagsDraft(nextActive.tags.join(", "));
+    setSelectedTag((current) => (current === from ? to : current));
+  }
+
+  async function toggleTheme() {
+    const base = settings ?? DEFAULT_APP_SETTINGS;
+    const next = await window.suiji.updateSettings(
+      settingsPayload({ ...base, theme: base.theme === "dark" ? "light" : "dark" }, base.hotkey)
+    );
+    setSettings(next);
+  }
+
+  function handleOpenTaskNote(id: string) {
+    setViewMode("active");
+    void handleSelectNote(id);
+  }
+
+  const paletteItems = useMemo<CommandPaletteItem[]>(() => {
+    const commands: CommandPaletteItem[] = [
+      { id: "new", kind: "command", label: "新建记录", run: () => void handleCreate() },
+      { id: "find", kind: "command", label: "文档内查找", run: () => openFindPanel(false) },
+      { id: "theme", kind: "command", label: settings?.theme === "dark" ? "切换到浅色模式" : "切换到深色模式", run: () => void toggleTheme() },
+      { id: "history", kind: "command", label: "当前记录的历史版本", run: () => void handleOpenHistory() },
+      { id: "settings", kind: "command", label: "打开设置", run: () => openSettings() }
+    ];
+    const views: CommandPaletteItem[] = (
+      [
+        ["active", "视图：记录"],
+        ["tasks", "视图：待办"],
+        ["favorites", "视图：收藏"],
+        ["archive", "视图：归档"],
+        ["trash", "视图：回收站"],
+        ["recent", "视图：最近"]
+      ] as Array<[ViewMode, string]>
+    ).map(([mode, label]) => ({
+      id: `view-${mode}`,
+      kind: "command",
+      label,
+      run: () => {
+        setViewMode(mode);
+        if (mode !== "tasks") {
+          const next = firstVisibleNote(notesRef.current, mode);
+          if (next) setActiveId(next.id);
+        }
+      }
+    }));
+    const noteItems: CommandPaletteItem[] = notes
+      .filter((note) => !note.trashedAt)
+      .map((note) => ({
+        id: note.id,
+        kind: "note",
+        label: note.title || "未命名记录",
+        hint: note.excerpt.slice(0, 40),
+        run: () => void handleSelectNote(note.id)
+      }));
+    return [...commands, ...views, ...noteItems];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notes, settings?.theme]);
 
   async function handleExport(format: ExportFormat) {
     await saveActive({ skipClean: true });
@@ -1678,6 +1787,8 @@ export default function App() {
             // 先落盘当前未保存的修改，再切换，避免 650ms 防抖窗口内丢内容
             await saveActive({ skipClean: true });
             setViewMode(mode);
+            // 待办视图不跳转文档，保持当前编辑上下文
+            if (mode === "tasks") return;
             const next = firstVisibleNote(notes, mode);
             if (next) setActiveId(next.id);
           })();
@@ -1690,6 +1801,9 @@ export default function App() {
         selectedTag={selectedTag}
         onSelectTag={setSelectedTag}
         onRemoveTag={(tag) => handleRemoveMetadata("tag", tag)}
+        onRenameTag={(tag) => setTagRename({ from: tag, draft: tag })}
+        openTasks={openTasks}
+        onOpenTaskNote={handleOpenTaskNote}
         filteredNotes={filteredNotes}
         activeId={activeId}
         searchKeyword={searchKeyword}
@@ -1804,6 +1918,20 @@ export default function App() {
           </div>
         ) : null}
       </section>
+
+      {paletteOpen ? <CommandPalette items={paletteItems} onClose={() => setPaletteOpen(false)} /> : null}
+
+      {tagRename ? (
+        <PromptDialog
+          title="重命名标签"
+          description={`把「${tagRename.from}」改成新名字；如果新名字已存在，两个标签会合并。`}
+          value={tagRename.draft}
+          confirmLabel="重命名"
+          onChange={(value) => setTagRename((current) => (current ? { ...current, draft: value } : current))}
+          onConfirm={() => void applyTagRename()}
+          onClose={() => setTagRename(null)}
+        />
+      ) : null}
 
       {linkDialog ? (
         <LinkDialog

@@ -71,6 +71,57 @@ export function LinkDialog({
   );
 }
 
+/* ---------- 文本输入弹窗 ---------- */
+
+type PromptDialogProps = {
+  title: string;
+  description: string;
+  value: string;
+  confirmLabel?: string;
+  onChange: (value: string) => void;
+  onConfirm: () => void;
+  onClose: () => void;
+};
+
+export function PromptDialog({ title, description, value, confirmLabel, onChange, onConfirm, onClose }: PromptDialogProps) {
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <div
+        className="modal link-modal"
+        role="dialog"
+        aria-modal="true"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="modal-header">
+          <h2>{title}</h2>
+          <p className="modal-description">{description}</p>
+        </div>
+        <label className="link-field">
+          <input
+            type="text"
+            value={value}
+            autoFocus
+            onChange={(event) => onChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              onConfirm();
+            }}
+          />
+        </label>
+        <div className="modal-actions">
+          <button type="button" onClick={onClose}>
+            取消
+          </button>
+          <button type="button" className="primary" onClick={onConfirm}>
+            {confirmLabel ?? "确定"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- 版本历史 ---------- */
 
 type HistoryModalProps = {

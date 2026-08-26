@@ -36,6 +36,7 @@ export type AppSettings = {
   fontSize: number;
   lineWidth: number;
   lineHeight: number;
+  trashRetentionDays: number;
 };
 
 export type SettingsUpdatePayload = {
@@ -52,6 +53,7 @@ export type SettingsUpdatePayload = {
   fontSize: number;
   lineWidth: number;
   lineHeight: number;
+  trashRetentionDays: number;
   currentPrivacyPin?: string;
   privacyPin?: string;
   clearPrivacyPin?: boolean;
@@ -85,11 +87,17 @@ export type ExportPayload = {
   currentPrivacyPin?: string;
 };
 
+export type BackupAttachment = {
+  name: string;
+  data: string;
+};
+
 export type NotesBackup = {
   app: "suiji";
   version: string;
   exportedAt: string;
   notes: NoteRecord[];
+  attachments?: BackupAttachment[];
 };
 
 export type RestoreFailure = {

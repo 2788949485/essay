@@ -49,8 +49,10 @@ import {
   safeExportName
 } from "./note-transfer.js";
 import { parseEncryptedExportBundle } from "../shared/encrypted-export.js";
+import { ASSET_URL_PREFIX, collectAssetFileNames } from "../shared/note-assets.js";
 import type {
   AppSettings,
+  BackupAttachment,
   BackupEntry,
   BackupExportOptions,
   BackupImportOptions,
@@ -111,7 +113,6 @@ type StorageConfig = {
 };
 
 const ASSET_PROTOCOL = "suiji-asset";
-const ASSET_URL_PREFIX = `${ASSET_PROTOCOL}://`;
 const MAX_ASSET_BYTES = 20 * 1024 * 1024;
 
 // 附件图片走自定义协议落盘加载，不进文档 JSON/数据库
@@ -425,10 +426,12 @@ function normalizeTags(value: unknown) {
 }
 
 function normalizeFolder(value: unknown) {
-  // eslint-disable-next-line no-control-regex
-  return coerceString(value, "", MAX_FOLDER_LENGTH)
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
-    .trim();
+  return (
+    coerceString(value, "", MAX_FOLDER_LENGTH)
+      // eslint-disable-next-line no-control-regex
+      .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
+      .trim()
+  );
 }
 
 function validateExternalUrl(value: string) {
@@ -481,6 +484,9 @@ function sanitizeSettingsPayload(raw: unknown): SettingsUpdatePayload {
     fontSize: Math.min(Math.max(Number(payload.fontSize) || 16, 13), 24),
     lineWidth: Math.min(Math.max(Number(payload.lineWidth) || 1120, 640), 1600),
     lineHeight: Math.min(Math.max(Number(payload.lineHeight) || 1.72, 1.35), 2.2),
+    trashRetentionDays: Number.isFinite(Number(payload.trashRetentionDays))
+      ? Math.min(Math.max(Math.round(Number(payload.trashRetentionDays)), 0), 365)
+      : 30,
     currentPrivacyPin:
       typeof payload.currentPrivacyPin === "string" ? payload.currentPrivacyPin.slice(0, MAX_PIN_LENGTH) : undefined,
     privacyPin: typeof payload.privacyPin === "string" ? payload.privacyPin.slice(0, MAX_PIN_LENGTH) : undefined,
@@ -1073,7 +1079,8 @@ async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<App
     fontFamily: payload.fontFamily,
     fontSize: payload.fontSize,
     lineWidth: payload.lineWidth,
-    lineHeight: payload.lineHeight
+    lineHeight: payload.lineHeight,
+    trashRetentionDays: payload.trashRetentionDays ?? current.trashRetentionDays
   };
 
   if (payload.clearPrivacyPin) {
@@ -1169,6 +1176,23 @@ async function exportAllNotesBackup(options?: BackupExportOptions) {
     exportedAt: new Date().toISOString(),
     notes
   };
+  // 把记录引用的图片附件一并打进备份，恢复后图片才能跟随迁移
+  const assetNames = new Set<string>();
+  for (const note of notes) {
+    for (const name of collectAssetFileNames(note.content)) assetNames.add(name);
+  }
+  if (assetNames.size > 0) {
+    const attachments: BackupAttachment[] = [];
+    for (const name of assetNames) {
+      try {
+        const data = await fs.readFile(path.join(attachmentsDir, name));
+        attachments.push({ name, data: data.toString("base64") });
+      } catch {
+        // 附件文件已丢失时不阻塞备份
+      }
+    }
+    if (attachments.length > 0) backup.attachments = attachments;
+  }
   const result = mainWindow
     ? await dialog.showSaveDialog(mainWindow, {
         title: encrypted ? "导出加密备份" : "备份全部记录",
@@ -1236,8 +1260,23 @@ async function restoreNotesBackup(options?: BackupImportOptions): Promise<Restor
   if (warning.response !== 0) return null;
 
   const raw = await readImportedBackupText(result.filePaths[0], options?.currentPrivacyPin);
-  const backupNotes = parseBackupNotes(JSON.parse(raw));
+  const parsed = JSON.parse(raw) as Partial<NotesBackup>;
+  await restoreBackupAttachments(parsed.attachments);
+  const backupNotes = parseBackupNotes(parsed);
   return importSanitizedNotes(backupNotes, "restore");
+}
+
+async function restoreBackupAttachments(attachments: unknown) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return;
+  await fs.mkdir(attachmentsDir, { recursive: true });
+  for (const item of attachments as Array<{ name?: unknown; data?: unknown }>) {
+    const name = typeof item?.name === "string" ? path.basename(item.name) : "";
+    const data = typeof item?.data === "string" ? item.data : "";
+    if (!name || name !== item?.name || !data) continue;
+    const buffer = Buffer.from(data, "base64");
+    if (!buffer.byteLength || buffer.byteLength > MAX_ASSET_BYTES) continue;
+    await fs.writeFile(path.join(attachmentsDir, name), buffer).catch(() => undefined);
+  }
 }
 
 async function importEncryptedExport(
@@ -1604,13 +1643,40 @@ async function restoreNote(id: string): Promise<NoteRecord> {
 }
 
 async function purgeNote(id: string) {
+  const note = await readNote(id).catch(() => null);
   await backupExistingNote(id, "purged");
   dbExec("DELETE FROM notes_fts WHERE id = ?", [id]);
   dbExec("DELETE FROM notes WHERE id = ?", [id]);
   await fs.rm(notePath(id), { force: true }).catch(() => undefined);
   notesDbDirty = true;
   await persistNotesDatabase();
+  await cleanupUnreferencedAssets(collectAssetFileNames(note?.content));
   void pruneBackups();
+}
+
+// 附件只在没有其它记录引用时才删除，避免同一图片被多篇记录复用时误删
+async function cleanupUnreferencedAssets(candidates: Set<string>) {
+  if (candidates.size === 0) return;
+  const referenced = new Set<string>();
+  for (const item of await listNotes()) {
+    for (const name of collectAssetFileNames(item.content)) referenced.add(name);
+  }
+  for (const name of candidates) {
+    if (referenced.has(name)) continue;
+    await fs.rm(path.join(attachmentsDir, path.basename(name)), { force: true }).catch(() => undefined);
+  }
+}
+
+// 回收站超过保留天数的记录启动时彻底删除；0 表示不自动清理
+async function purgeExpiredTrash() {
+  const settings = await readStoredSettings();
+  const days = settings.trashRetentionDays;
+  if (!days || days <= 0) return;
+  const cutoff = Date.now() - days * 86_400_000;
+  const expired = (await listNotes()).filter((note) => note.trashedAt && Date.parse(note.trashedAt) < cutoff);
+  for (const note of expired) {
+    await purgeNote(note.id);
+  }
 }
 
 async function listNoteBackups(id: string): Promise<BackupEntry[]> {
@@ -1925,8 +1991,17 @@ function toggleWindow() {
   showWindow();
 }
 
+const QUICK_NEW_HOTKEY = "CommandOrControl+Alt+B";
+
+function quickNewNote() {
+  showWindow();
+  mainWindow?.webContents.send("menu:new-note");
+}
+
 function registerHotkey(hotkey: string) {
   globalShortcut.unregisterAll();
+  const quickNewOk = globalShortcut.register(QUICK_NEW_HOTKEY, quickNewNote);
+  if (!quickNewOk) console.warn(`[hotkey] 全局新建快捷键 ${QUICK_NEW_HOTKEY} 注册失败（可能被占用）`);
   const ok = globalShortcut.register(hotkey || DEFAULT_HOTKEY, toggleWindow);
   if (!ok) {
     globalShortcut.register(DEFAULT_HOTKEY, toggleWindow);
@@ -1966,6 +2041,20 @@ function registerIpc() {
   ipcMain.handle("notes:delete", (_event, id: string) => deleteNote(id));
   ipcMain.handle("notes:restore", (_event, id: string) => restoreNote(id));
   ipcMain.handle("notes:purge", (_event, id: string) => purgeNote(id));
+  ipcMain.handle("notes:rename-tag", async (_event, rawFrom: unknown, rawTo: unknown) => {
+    const from = coerceString(rawFrom, "", 100).trim();
+    const to = coerceString(rawTo, "", 100).trim();
+    if (!from || !to || from === to) return 0;
+    let changed = 0;
+    for (const note of await listNotes()) {
+      if (!note.tags.includes(from)) continue;
+      // Set 去重：目标标签已存在时自然合并
+      const tags = Array.from(new Set(note.tags.map((tag) => (tag === from ? to : tag))));
+      await saveNote({ ...note, tags });
+      changed += 1;
+    }
+    return changed;
+  });
   ipcMain.handle("notes:list-backups", (_event, id: string) => listNoteBackups(id));
   ipcMain.handle("notes:restore-backup-version", (_event, id: string, fileName: string) =>
     restoreNoteBackup(id, fileName)
@@ -2173,6 +2262,7 @@ if (gotTheLock) {
     createTray(settings);
     registerHotkey(settings.hotkey);
     refreshIdleLockMonitor();
+    void purgeExpiredTrash().catch(() => undefined);
     powerMonitor.on("suspend", () => {
       void lockContentForPrivacy(true);
     });

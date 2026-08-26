@@ -78,6 +78,7 @@ export const DEFAULT_SETTINGS: StoredSettings = {
   fontSize: 16,
   lineWidth: 1120,
   lineHeight: 1.72,
+  trashRetentionDays: 30,
   privacyPinHash: null,
   privacyPinSalt: null,
   privacyPinKdf: null
@@ -136,6 +137,7 @@ export function publicSettings(settings: StoredSettings, activePrivacyPin: strin
     fontSize: settings.fontSize,
     lineWidth: settings.lineWidth,
     lineHeight: settings.lineHeight,
+    trashRetentionDays: settings.trashRetentionDays,
     hasPrivacyPin: Boolean(settings.privacyPinHash && settings.privacyPinSalt)
   };
 }
@@ -187,6 +189,9 @@ export function sanitizeStoredSettings(raw: Partial<StoredSettings>): StoredSett
     fontSize: Math.min(Math.max(Number(raw.fontSize) || 16, 13), 24),
     lineWidth: Math.min(Math.max(Number(raw.lineWidth) || 1120, 640), 1600),
     lineHeight: Math.min(Math.max(Number(raw.lineHeight) || 1.72, 1.35), 2.2),
+    trashRetentionDays: Number.isFinite(Number(raw.trashRetentionDays))
+      ? Math.min(Math.max(Math.round(Number(raw.trashRetentionDays)), 0), 365)
+      : 30,
     privacyPinHash: typeof raw.privacyPinHash === "string" ? raw.privacyPinHash : null,
     privacyPinSalt: typeof raw.privacyPinSalt === "string" ? raw.privacyPinSalt : null,
     privacyPinKdf: raw.privacyPinKdf ? normalizeScryptKdfParams(raw.privacyPinKdf, LEGACY_PIN_KDF_PARAMS) : null

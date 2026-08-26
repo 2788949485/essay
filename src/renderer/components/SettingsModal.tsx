@@ -322,6 +322,22 @@ export function SettingsModal(props: SettingsModalProps) {
                 />
                 <small className="setting-hint">关闭历史版本后会停止生成本地副本，并清空已有版本记录。</small>
               </label>
+              <label className="settings-field">
+                <span>回收站自动清理（天）</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={365}
+                  value={settings?.trashRetentionDays ?? 30}
+                  onChange={(event) =>
+                    onSettingsChange((current) => ({
+                      ...current,
+                      trashRetentionDays: Math.min(Math.max(Number(event.target.value) || 0, 0), 365)
+                    }))
+                  }
+                />
+                <small className="setting-hint">`0` 表示不自动清理；超过天数的回收站记录会在启动时彻底删除。</small>
+              </label>
               <section className="data-tools settings-field settings-field-wide" aria-label="数据管理">
                 <h3>数据管理</h3>
                 <div className="data-tool-grid">

@@ -2,7 +2,7 @@ import type { AppSettings } from "../shared/types";
 
 export type SaveState = "idle" | "dirty" | "saving" | "saved" | "error";
 export type ExportFormat = "html" | "json" | "txt" | "md" | "pdf";
-export type ViewMode = "active" | "favorites" | "archive" | "trash" | "recent";
+export type ViewMode = "active" | "favorites" | "archive" | "trash" | "recent" | "tasks";
 export type LeftPaneMode = "document" | "files";
 
 export type FindMatch = {
@@ -68,7 +68,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   fontFamily: "",
   fontSize: 16,
   lineWidth: 1120,
-  lineHeight: 1.72
+  lineHeight: 1.72,
+  trashRetentionDays: 30
 };
 
 export const FORMAT_COLORS: Array<{ id: ColorToken; label: string; swatch: string }> = [

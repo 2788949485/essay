@@ -622,3 +622,42 @@
   content: attr(data-placeholder);
   pointer-events: none;
 }
+
+/* ---------- 代码块语法高亮（hljs token 配色，适配深色 pre 底） ---------- */
+
+.editor-surface pre .hljs-keyword,
+.editor-surface pre .hljs-selector-tag,
+.editor-surface pre .hljs-meta {
+  color: #ff7b93;
+}
+
+.editor-surface pre .hljs-string,
+.editor-surface pre .hljs-regexp,
+.editor-surface pre .hljs-addition {
+  color: #a5d6a7;
+}
+
+.editor-surface pre .hljs-number,
+.editor-surface pre .hljs-literal,
+.editor-surface pre .hljs-symbol {
+  color: #f2b66d;
+}
+
+.editor-surface pre .hljs-title,
+.editor-surface pre .hljs-title.function_,
+.editor-surface pre .hljs-built_in {
+  color: #82aaff;
+}
+
+.editor-surface pre .hljs-title.class_,
+.editor-surface pre .hljs-type,
+.editor-surface pre .hljs-attr {
+  color: #ffd479;
+}
+
+.editor-surface pre .hljs-comment,
+.editor-surface pre .hljs-quote,
+.editor-surface pre .hljs-deletion {
+  color: #7b8a84;
+  font-style: italic;
+}

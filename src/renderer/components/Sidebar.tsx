@@ -6,8 +6,10 @@ import {
   Folder,
   FolderOpen,
   List,
+  ListTodo,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Pin,
   PinOff,
   Plus,
@@ -21,7 +23,7 @@ import {
 import type { NoteRecord } from "../../shared/types";
 import type { LeftPaneMode, OutlineItem, ViewMode } from "../constants";
 import { HighlightedText, keepEditorFocus } from "./common";
-import { formatTime } from "../utils/text";
+import { formatTime, type OpenTask } from "../utils/text";
 
 type SidebarProps = {
   sidebarCollapsed: boolean;
@@ -50,6 +52,9 @@ type SidebarProps = {
   selectedTag: string;
   onSelectTag: (tag: string) => void;
   onRemoveTag: (tag: string) => void;
+  onRenameTag: (tag: string) => void;
+  openTasks: OpenTask[];
+  onOpenTaskNote: (id: string) => void;
   filteredNotes: NoteRecord[];
   activeId: string;
   searchKeyword: string;
@@ -64,6 +69,7 @@ type SidebarProps = {
 
 const VIEW_MODES: Array<[ViewMode, string, typeof List]> = [
   ["active", "记录", List],
+  ["tasks", "待办", ListTodo],
   ["favorites", "收藏", Star],
   ["archive", "归档", Archive],
   ["trash", "回收站", Trash2],
@@ -98,6 +104,9 @@ export function Sidebar(props: SidebarProps) {
     selectedTag,
     onSelectTag,
     onRemoveTag,
+    onRenameTag,
+    openTasks,
+    onOpenTaskNote,
     filteredNotes,
     activeId,
     searchKeyword,
@@ -324,6 +333,15 @@ export function Sidebar(props: SidebarProps) {
                     <button
                       type="button"
                       className="metadata-filter-remove"
+                      aria-label={`重命名标签 ${tag}`}
+                      title={`重命名标签 ${tag}`}
+                      onClick={() => onRenameTag(tag)}
+                    >
+                      <Pencil size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      className="metadata-filter-remove"
                       aria-label={`删除标签 ${tag}`}
                       title={`删除标签 ${tag}`}
                       onClick={() => onRemoveTag(tag)}
@@ -336,10 +354,43 @@ export function Sidebar(props: SidebarProps) {
             ) : null}
 
             <div className="sidebar-list-header">
-              <span>{viewMode === "recent" ? "最近编辑" : "记录列表"}</span>
-              <strong>{filteredNotes.length}</strong>
+              <span>{viewMode === "recent" ? "最近编辑" : viewMode === "tasks" ? "未完成的待办" : "记录列表"}</span>
+              <strong>{viewMode === "tasks" ? openTasks.length : filteredNotes.length}</strong>
             </div>
 
+            {viewMode === "tasks" ? (
+              <nav className="note-list" aria-label="待办汇总">
+                {openTasks.length === 0 ? (
+                  <p className="note-list-empty" role="status">
+                    没有未完成的待办事项
+                  </p>
+                ) : (
+                  openTasks.map((task, index) => (
+                    <div
+                      key={`${task.noteId}-${index}`}
+                      className="note-item"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => onOpenTaskNote(task.noteId)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onOpenTaskNote(task.noteId);
+                        }
+                      }}
+                    >
+                      <div className="note-item-header">
+                        <span className="note-title">
+                          <span className="note-title-text">{task.text || "未命名待办"}</span>
+                        </span>
+                      </div>
+                      <span className="note-excerpt">{task.noteTitle}</span>
+                      <span className="note-time">{formatTime(task.updatedAt)}</span>
+                    </div>
+                  ))
+                )}
+              </nav>
+            ) : (
             <nav className="note-list">
               {filteredNotes.length === 0 ? (
                 <p className="note-list-empty" role="status">
@@ -472,6 +523,7 @@ export function Sidebar(props: SidebarProps) {
                 ))
               )}
             </nav>
+            )}
           </>
         )}
       </div>

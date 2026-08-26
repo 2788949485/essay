@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import katex from "katex";
+import { ASSET_URL_PREFIX } from "../shared/note-assets.js";
 import type { NoteRecord } from "../shared/types.js";
 
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
@@ -174,8 +175,6 @@ function formatExportDate(value: string) {
     hour12: false
   }).format(date);
 }
-
-const ASSET_URL_PREFIX = "suiji-asset://";
 
 /** 导出前把附件引用内嵌回 data URI，保证导出的 HTML/PDF 自包含 */
 export async function inlineAssetImages(
