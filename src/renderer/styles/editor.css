@@ -674,6 +674,7 @@
 }
 
 .editor-surface .code-block-header + pre {
+  margin-top: 0;
   border-radius: 0 0 18px 18px;
 }
 

@@ -71,6 +71,11 @@ function CodeBlockView({ node, updateAttributes }: NodeViewProps) {
 
 export const CodeBlockExtension = CodeBlockLowlight.extend({
   addNodeView() {
-    return ReactNodeViewRenderer(CodeBlockView);
+    return ReactNodeViewRenderer(CodeBlockView, {
+      // 工具头里的事件（尤其是 select 的 mousedown）必须拦下，
+      // 否则 ProseMirror 抢焦点，原生下拉一打开就被关掉
+      stopEvent: ({ event }) =>
+        event.target instanceof Element && Boolean(event.target.closest(".code-block-header"))
+    });
   }
 });
