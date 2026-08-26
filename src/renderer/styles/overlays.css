@@ -299,10 +299,19 @@ input[type="range"] {
   color: #fff7f3;
 }
 
+/* hover 必须显式带上各自的背景：否则会被 .modal-actions button:hover 的
+   surface-hover 浅色背景盖掉，白字落在白底上直接看不见 */
 .modal-actions .primary:hover,
-.modal-actions .danger-primary:hover,
 .privacy-panel button:hover {
   border-color: transparent;
+  background: linear-gradient(180deg, var(--accent-color) 0%, var(--accent-strong) 100%);
+  color: #ffffff;
+  filter: brightness(1.06);
+}
+
+.modal-actions .danger-primary:hover {
+  border-color: transparent;
+  background: linear-gradient(180deg, var(--danger-color) 0%, var(--danger-strong) 100%);
   color: #ffffff;
   filter: brightness(1.06);
 }
