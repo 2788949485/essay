@@ -40,7 +40,8 @@ export type ConfirmDialogState = {
 };
 
 export type TextRole = "body" | "caption";
-export type ColorToken = "default" | "slate" | "gray" | "indigo" | "blue" | "mint" | "purple" | "pink" | "peach" | "sand";
+export type ColorToken =
+  "default" | "slate" | "gray" | "indigo" | "blue" | "mint" | "purple" | "pink" | "peach" | "sand";
 export type FontPresetId = "default" | "serif" | "mono" | "rounded";
 
 export type SearchSyntax = {
@@ -86,6 +87,16 @@ export const FORMAT_COLORS: Array<{ id: ColorToken; label: string; swatch: strin
 export const FONT_PRESETS: Array<{ id: FontPresetId; label: string; preview: string; family: string }> = [
   { id: "default", label: "默认", preview: "Aa", family: "" },
   { id: "serif", label: "衬线", preview: "Ss", family: '"Noto Serif SC", "Source Han Serif SC", "Songti SC", serif' },
-  { id: "mono", label: "等宽", preview: "00", family: '"JetBrains Mono", "Cascadia Code", "SFMono-Regular", monospace' },
-  { id: "rounded", label: "圆体", preview: "Rr", family: '"Arial Rounded MT Bold", "Hiragino Sans GB", "Microsoft YaHei", sans-serif' }
+  {
+    id: "mono",
+    label: "等宽",
+    preview: "00",
+    family: '"JetBrains Mono", "Cascadia Code", "SFMono-Regular", monospace'
+  },
+  {
+    id: "rounded",
+    label: "圆体",
+    preview: "Rr",
+    family: '"Arial Rounded MT Bold", "Hiragino Sans GB", "Microsoft YaHei", sans-serif'
+  }
 ];

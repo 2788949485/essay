@@ -95,8 +95,10 @@ function renderTaskItemHtml(node: JsonNode): string {
 
 function renderTableCellHtml(node: JsonNode) {
   const tag = node.type === "tableHeader" ? "th" : "td";
-  const align = typeof node.attrs?.colspan === "number" && node.attrs.colspan > 1 ? ` colspan="${node.attrs.colspan}"` : "";
-  const rowspan = typeof node.attrs?.rowspan === "number" && node.attrs.rowspan > 1 ? ` rowspan="${node.attrs.rowspan}"` : "";
+  const align =
+    typeof node.attrs?.colspan === "number" && node.attrs.colspan > 1 ? ` colspan="${node.attrs.colspan}"` : "";
+  const rowspan =
+    typeof node.attrs?.rowspan === "number" && node.attrs.rowspan > 1 ? ` rowspan="${node.attrs.rowspan}"` : "";
   return `<${tag}${align}${rowspan}>${(node.content ?? []).map(renderBlockHtml).join("") || "<p></p>"}</${tag}>`;
 }
 
@@ -171,6 +173,45 @@ function formatExportDate(value: string) {
     minute: "2-digit",
     hour12: false
   }).format(date);
+}
+
+const ASSET_URL_PREFIX = "suiji-asset://";
+
+/** 导出前把附件引用内嵌回 data URI，保证导出的 HTML/PDF 自包含 */
+export async function inlineAssetImages(
+  content: NoteRecord["content"],
+  attachmentsDir: string
+): Promise<NoteRecord["content"]> {
+  const raw = JSON.stringify(content);
+  if (!raw.includes(ASSET_URL_PREFIX)) return content;
+
+  async function convert(node: { type?: string; attrs?: Record<string, unknown>; content?: unknown[] }): Promise<void> {
+    if (node.type === "image") {
+      const src = typeof node.attrs?.src === "string" ? node.attrs.src : "";
+      if (src.startsWith(ASSET_URL_PREFIX)) {
+        const fileName = path.basename(decodeURIComponent(src.slice(ASSET_URL_PREFIX.length)));
+        const ext = path.extname(fileName).slice(1).toLowerCase() || "png";
+        const mime = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
+        try {
+          const buffer = fs.readFileSync(path.join(attachmentsDir, fileName));
+          if (node.attrs) node.attrs.src = `data:${mime};base64,${buffer.toString("base64")}`;
+        } catch {
+          // 附件丢失时保留原引用，导出照常进行
+        }
+      }
+    }
+    for (const child of (node.content ?? []) as Array<{
+      type?: string;
+      attrs?: Record<string, unknown>;
+      content?: unknown[];
+    }>) {
+      await convert(child);
+    }
+  }
+
+  const copy = JSON.parse(raw) as NoteRecord["content"];
+  await convert(copy as { type?: string; attrs?: Record<string, unknown>; content?: unknown[] });
+  return copy;
 }
 
 export function buildHtmlExport(note: NoteRecord) {

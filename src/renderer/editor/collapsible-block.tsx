@@ -135,7 +135,10 @@ function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes
   }
 
   return (
-    <NodeViewWrapper className={selected ? "collapsible-block is-selected" : "collapsible-block"} data-open={open ? "true" : "false"}>
+    <NodeViewWrapper
+      className={selected ? "collapsible-block is-selected" : "collapsible-block"}
+      data-open={open ? "true" : "false"}
+    >
       <div className="collapsible-block-header" contentEditable={false}>
         <span
           className="collapsible-block-drag"
@@ -208,7 +211,11 @@ function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes
                   setMenuOpen(false);
                   const pos = typeof getPos === "function" ? getPos() : null;
                   if (typeof pos !== "number") return;
-                  editor.chain().focus().deleteRange({ from: pos, to: pos + node.nodeSize }).run();
+                  editor
+                    .chain()
+                    .focus()
+                    .deleteRange({ from: pos, to: pos + node.nodeSize })
+                    .run();
                 }}
               >
                 <Trash2 size={14} />
@@ -248,7 +255,8 @@ export const CollapsibleBlockExtension = TiptapNode.create({
     return {
       title: {
         default: "",
-        parseHTML: (element) => element.querySelector("summary")?.textContent ?? element.getAttribute("data-title") ?? "",
+        parseHTML: (element) =>
+          element.querySelector("summary")?.textContent ?? element.getAttribute("data-title") ?? "",
         renderHTML: (attributes) => (attributes.title ? { "data-title": attributes.title } : {})
       },
       open: {

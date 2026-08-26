@@ -28,12 +28,15 @@ const api = {
   listNoteBackups: (id: string) => ipcRenderer.invoke("notes:list-backups", id) as Promise<BackupEntry[]>,
   restoreNoteBackup: (id: string, fileName: string) =>
     ipcRenderer.invoke("notes:restore-backup-version", id, fileName) as Promise<NoteRecord>,
-  backupAllNotes: (options: BackupExportOptions) => ipcRenderer.invoke("notes:backup-all", options) as Promise<string | null>,
+  backupAllNotes: (options: BackupExportOptions) =>
+    ipcRenderer.invoke("notes:backup-all", options) as Promise<string | null>,
   restoreNotesBackup: (options: BackupImportOptions) =>
     ipcRenderer.invoke("notes:restore-backup", options) as Promise<RestoreResult | null>,
   importEncryptedExport: (options: EncryptedExportImportOptions) =>
     ipcRenderer.invoke("notes:import-encrypted-export", options) as Promise<EncryptedExportImportResult | null>,
   importMarkdownNotes: () => ipcRenderer.invoke("notes:import-markdown") as Promise<NoteRecord[]>,
+  saveImageAsset: (payload: { base64: string; ext: string }) =>
+    ipcRenderer.invoke("notes:save-asset", payload) as Promise<string>,
   batchExportNotes: (payload: BatchExportRequest) =>
     ipcRenderer.invoke("notes:batch-export", payload) as Promise<string | { directory: string; count: number } | null>,
   exportNote: (payload: ExportPayload) => ipcRenderer.invoke("notes:export", payload) as Promise<string | null>,

@@ -206,6 +206,14 @@ export default function App() {
       handlePaste: (view, event) => {
         const clipboardData = event.clipboardData;
         if (!clipboardData) return false;
+        // 图片文件优先走落盘通道，必须在 tiptap 默认 HTML 解析之前拦截，
+        // 否则 Chromium 会把剪贴板图片以 data: URI 内联进文档
+        const imageFile = Array.from(clipboardData.files).find((item) => item.type.startsWith("image/"));
+        if (imageFile) {
+          event.preventDefault();
+          void handleInsertImage(imageFile);
+          return true;
+        }
         const text = clipboardData.getData("text/plain") ?? "";
         const html = clipboardData.getData("text/html") ?? "";
         const segments = splitPastedMath(text);
@@ -216,7 +224,8 @@ export default function App() {
           return true;
         }
         // 剪贴板不是富文本(PDF、纯文本源):按语义合并视觉换行,避免一段被拆成多段
-        const isRichHtml = /<\/?(?:h[1-6]|ul|ol|li|table|tr|td|th|b|strong|i|em|u|a\b|img|blockquote|span|font)\b/i.test(html);
+        const isRichHtml =
+          /<\/?(?:h[1-6]|ul|ol|li|table|tr|td|th|b|strong|i|em|u|a\b|img|blockquote|span|font)\b/i.test(html);
         if (text && !isRichHtml) {
           const blocks = buildPlainTextBlocks(text);
           if (blocks.length) {
@@ -380,7 +389,9 @@ export default function App() {
     // 只提交字体设置：不带热键/隐私 PIN 草稿，避免把设置弹窗里未保存的内容一并落盘
     const base = settings ?? DEFAULT_APP_SETTINGS;
     try {
-      const next = await window.suiji.updateSettings(settingsPayload({ ...base, fontFamily: preset.family }, base.hotkey));
+      const next = await window.suiji.updateSettings(
+        settingsPayload({ ...base, fontFamily: preset.family }, base.hotkey)
+      );
       setSettings(next);
       setHotkeyDraft(next.hotkey);
     } catch (error) {
@@ -672,21 +683,6 @@ export default function App() {
   });
 
   useEffect(() => {
-    function onPaste(event: ClipboardEvent) {
-      if (!editor?.isFocused) return;
-      const file = Array.from(event.clipboardData?.files ?? []).find((item) => item.type.startsWith("image/"));
-      if (file) {
-        event.preventDefault();
-        void handleInsertImage(file);
-        return;
-      }
-    }
-
-    window.addEventListener("paste", onPaste);
-    return () => window.removeEventListener("paste", onPaste);
-  }, [editor]);
-
-  useEffect(() => {
     const keyword = parseSearchSyntax(query).text;
     if (!keyword) {
       setFtsMatchedIds(null);
@@ -706,63 +702,66 @@ export default function App() {
     };
   }, [query]);
 
-  const saveActive = useCallback(async (options?: { skipClean?: boolean }) => {
-    if (!editor || !activeNote) return;
-    // 回收站笔记是只读的，任何对它的保存都是错误路径
-    if (activeNote.trashedAt) return activeNote;
-    if (options?.skipClean && saveStateRef.current !== "dirty") {
-      return activeNote;
-    }
-    // 守卫：自加载以来没有任何编辑（正文未改且标题/标签/文件夹未变）时不写库，
-    // 避免视图切换等路径上的误触发把 updatedAt 刷新成当前时间
-    if (
-      revisionRef.current === 0 &&
-      title === activeNote.title &&
-      parseTagsInput(tagsDraft).join(",") === activeNote.tags.join(",") &&
-      normalizeFolderInput(folderDraft) === activeNote.folder
-    ) {
-      return activeNote;
-    }
-
-    const revisionAtStart = revisionRef.current;
-    const snapshot: NoteRecord = {
-      ...activeNote,
-      title,
-      tags: parseTagsInput(tagsDraft),
-      folder: normalizeFolderInput(folderDraft),
-      content: editor.getJSON(),
-      html: editor.getHTML(),
-      plainText: getContentPlainText(editor.getJSON())
-    };
-
-    const saveTask = saveQueueRef.current.then(async () => {
-      if (activeIdRef.current === snapshot.id) {
-        setSaveState("saving");
+  const saveActive = useCallback(
+    async (options?: { skipClean?: boolean }) => {
+      if (!editor || !activeNote) return;
+      // 回收站笔记是只读的，任何对它的保存都是错误路径
+      if (activeNote.trashedAt) return activeNote;
+      if (options?.skipClean && saveStateRef.current !== "dirty") {
+        return activeNote;
+      }
+      // 守卫：自加载以来没有任何编辑（正文未改且标题/标签/文件夹未变）时不写库，
+      // 避免视图切换等路径上的误触发把 updatedAt 刷新成当前时间
+      if (
+        revisionRef.current === 0 &&
+        title === activeNote.title &&
+        parseTagsInput(tagsDraft).join(",") === activeNote.tags.join(",") &&
+        normalizeFolderInput(folderDraft) === activeNote.folder
+      ) {
+        return activeNote;
       }
 
-      try {
-        const saved = await window.suiji.saveNote(snapshot);
-        // 原位替换，避免自动保存 updatedAt 变化导致编辑中的笔记在列表里跳位
-        setNotes((current) => current.map((note) => (note.id === saved.id ? saved : note)));
-        if (activeIdRef.current === saved.id) {
-          setSaveState(revisionRef.current === revisionAtStart ? "saved" : "dirty");
-        }
-        return saved;
-      } catch {
+      const revisionAtStart = revisionRef.current;
+      const snapshot: NoteRecord = {
+        ...activeNote,
+        title,
+        tags: parseTagsInput(tagsDraft),
+        folder: normalizeFolderInput(folderDraft),
+        content: editor.getJSON(),
+        html: editor.getHTML(),
+        plainText: getContentPlainText(editor.getJSON())
+      };
+
+      const saveTask = saveQueueRef.current.then(async () => {
         if (activeIdRef.current === snapshot.id) {
-          setSaveState("error");
+          setSaveState("saving");
         }
-        return null;
-      }
-    });
 
-    saveQueueRef.current = saveTask.then(
-      () => undefined,
-      () => undefined
-    );
+        try {
+          const saved = await window.suiji.saveNote(snapshot);
+          // 原位替换，避免自动保存 updatedAt 变化导致编辑中的笔记在列表里跳位
+          setNotes((current) => current.map((note) => (note.id === saved.id ? saved : note)));
+          if (activeIdRef.current === saved.id) {
+            setSaveState(revisionRef.current === revisionAtStart ? "saved" : "dirty");
+          }
+          return saved;
+        } catch {
+          if (activeIdRef.current === snapshot.id) {
+            setSaveState("error");
+          }
+          return null;
+        }
+      });
 
-    return saveTask;
-  }, [activeNote, editor, folderDraft, tagsDraft, title]);
+      saveQueueRef.current = saveTask.then(
+        () => undefined,
+        () => undefined
+      );
+
+      return saveTask;
+    },
+    [activeNote, editor, folderDraft, tagsDraft, title]
+  );
 
   useEffect(() => {
     if (saveState !== "dirty") return;
@@ -782,9 +781,7 @@ export default function App() {
     const disposeSettings =
       typeof window.suiji.onOpenSettings === "function"
         ? window.suiji.onOpenSettings(() => {
-            // 打开时拍快照，取消时回滚预览更改（主题、排版等即时生效项）
-            settingsSnapshotRef.current = settingsRef.current;
-            setSettingsOpen(true);
+            openSettings();
           })
         : () => {};
     const disposeHistory =
@@ -875,16 +872,9 @@ export default function App() {
   }, [notes]);
 
   const allFolders = useMemo(() => {
-    return Array.from(new Set(notes.filter((note) => !note.trashedAt && note.folder).map((note) => note.folder))).sort((a, b) =>
-      a.localeCompare(b, "zh-CN")
+    return Array.from(new Set(notes.filter((note) => !note.trashedAt && note.folder).map((note) => note.folder))).sort(
+      (a, b) => a.localeCompare(b, "zh-CN")
     );
-  }, [notes]);
-
-  const recentNotes = useMemo(() => {
-    return [...notes]
-      .filter((note) => !note.trashedAt)
-      .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
-      .slice(0, 8);
   }, [notes]);
 
   function focusEditorSoon() {
@@ -916,7 +906,10 @@ export default function App() {
   async function reloadNotes(selectMode = viewMode) {
     const loaded = await window.suiji.listNotes();
     setNotes(loaded);
-    const stillVisible = firstVisibleNote(loaded.filter((note) => note.id === activeId), selectMode);
+    const stillVisible = firstVisibleNote(
+      loaded.filter((note) => note.id === activeId),
+      selectMode
+    );
     const next = stillVisible ?? firstVisibleNote(loaded, selectMode) ?? firstVisibleNote(loaded, "active");
     setActiveId(next?.id || "");
     return loaded;
@@ -1009,13 +1002,17 @@ export default function App() {
   async function handleInsertImage(file: File | undefined) {
     if (!editor || !file) return;
     if (!file.type.startsWith("image/")) return;
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result));
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
-    editor.chain().focus().setImage({ src: dataUrl, alt: file.name }).run();
+    // 图片落盘到 attachments/，文档里只存 asset 引用，避免 base64 撑爆文档和数据库
+    const ext = (file.type.split("/")[1] || "png").replace("jpeg", "jpg");
+    const buffer = await file.arrayBuffer();
+    let binary = "";
+    const bytes = new Uint8Array(buffer);
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    const src = await window.suiji.saveImageAsset({ base64: window.btoa(binary), ext });
+    editor.chain().focus().setImage({ src, alt: file.name }).run();
     markDirty();
   }
 
@@ -1029,9 +1026,7 @@ export default function App() {
   async function handleCreate() {
     await saveActive({ skipClean: true });
     const created = await window.suiji.createNote();
-    const note = selectedFolder
-      ? await window.suiji.saveNote({ ...created, folder: selectedFolder })
-      : created;
+    const note = selectedFolder ? await window.suiji.saveNote({ ...created, folder: selectedFolder }) : created;
     setNotes((current) => sortNotes([note, ...current]));
     setActiveId(note.id);
     setViewMode("active");
@@ -1111,7 +1106,9 @@ export default function App() {
   }
 
   function handleRemoveMetadata(kind: NoteMetadataKind, value: string) {
-    const affectedCount = notes.filter((note) => (kind === "tag" ? note.tags.includes(value) : note.folder === value)).length;
+    const affectedCount = notes.filter((note) =>
+      kind === "tag" ? note.tags.includes(value) : note.folder === value
+    ).length;
     const label = kind === "tag" ? "标签" : "文件夹";
     setConfirmDialog({
       title: `删除${label}`,
@@ -1211,6 +1208,11 @@ export default function App() {
     const targetPos = Math.min(item.pos + 1, editor.state.doc.content.size);
     editor.chain().focus().setTextSelection(targetPos).scrollIntoView().run();
     revealEditorPosition(targetPos);
+  }
+
+  function openSettings() {
+    settingsSnapshotRef.current = settingsRef.current;
+    setSettingsOpen(true);
   }
 
   function closeSettings() {
@@ -1468,9 +1470,7 @@ export default function App() {
       focusEditorSoon();
     } catch (error) {
       const message =
-        error instanceof Error
-          ? error.message.replace(/^Error invoking remote method '[^']+': Error:\s*/, "")
-          : "";
+        error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': Error:\s*/, "") : "";
       setUnlockError(message || "解锁失败，请稍后重试");
     } finally {
       setUnlockBusy(false);
@@ -1487,7 +1487,11 @@ export default function App() {
   }
 
   function closeLinkDialog() {
-    const selection = linkDialog ? (linkDialog.empty ? linkDialog.from : { from: linkDialog.from, to: linkDialog.to }) : null;
+    const selection = linkDialog
+      ? linkDialog.empty
+        ? linkDialog.from
+        : { from: linkDialog.from, to: linkDialog.to }
+      : null;
     setLinkDialog(null);
     setLinkDraft("");
     if (selection !== null) {
@@ -1502,7 +1506,13 @@ export default function App() {
 
     const normalizedUrl = normalizeLinkUrl(linkDraft);
     if (!normalizedUrl) {
-      editor.chain().focus().setTextSelection({ from: linkDialog.from, to: linkDialog.to }).extendMarkRange("link").unsetLink().run();
+      editor
+        .chain()
+        .focus()
+        .setTextSelection({ from: linkDialog.from, to: linkDialog.to })
+        .extendMarkRange("link")
+        .unsetLink()
+        .run();
       closeLinkDialog();
       return;
     }
@@ -1529,7 +1539,13 @@ export default function App() {
 
   function removeLinkFromDialog() {
     if (!editor || !linkDialog) return;
-    editor.chain().focus().setTextSelection({ from: linkDialog.from, to: linkDialog.to }).extendMarkRange("link").unsetLink().run();
+    editor
+      .chain()
+      .focus()
+      .setTextSelection({ from: linkDialog.from, to: linkDialog.to })
+      .extendMarkRange("link")
+      .unsetLink()
+      .run();
     closeLinkDialog();
   }
 
@@ -1653,6 +1669,7 @@ export default function App() {
         onOpenFind={() => openFindPanel(false)}
         onCreateNote={() => void handleCreate()}
         onHideWindow={() => void window.suiji.hideWindow()}
+        onOpenSettings={openSettings}
         query={query}
         onQueryChange={setQuery}
         viewMode={viewMode}
@@ -1673,7 +1690,6 @@ export default function App() {
         selectedTag={selectedTag}
         onSelectTag={setSelectedTag}
         onRemoveTag={(tag) => handleRemoveMetadata("tag", tag)}
-        recentNotes={recentNotes}
         filteredNotes={filteredNotes}
         activeId={activeId}
         searchKeyword={searchKeyword}

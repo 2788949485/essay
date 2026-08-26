@@ -136,7 +136,10 @@ function renderBlock(node: JSONContent, depth = 0): string {
 
   switch (node.type) {
     case "doc":
-      return children.map((child) => renderBlock(child, depth)).filter(Boolean).join("\n\n");
+      return children
+        .map((child) => renderBlock(child, depth))
+        .filter(Boolean)
+        .join("\n\n");
     case "paragraph":
       return renderInline(node).trim();
     case "image":
@@ -175,7 +178,10 @@ function renderBlock(node: JSONContent, depth = 0): string {
     case "horizontalRule":
       return "---";
     default:
-      return children.map((child) => renderBlock(child, depth)).filter(Boolean).join("\n\n");
+      return children
+        .map((child) => renderBlock(child, depth))
+        .filter(Boolean)
+        .join("\n\n");
   }
 }
 

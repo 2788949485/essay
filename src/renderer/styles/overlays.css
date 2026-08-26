@@ -334,8 +334,11 @@ input[type="range"] {
 }
 
 .settings-group-security {
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--accent-color) 7%, var(--layer-section-top)) 0%, var(--layer-section-bottom) 100%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent-color) 7%, var(--layer-section-top)) 0%,
+    var(--layer-section-bottom) 100%
+  );
 }
 
 .settings-group-header {

@@ -8,7 +8,9 @@ function escapeHtml(value: string) {
 }
 
 function stopMathPanelMouseDown({ event }: { event: Event }) {
-  return event.type === "mousedown" && event.target instanceof Element && Boolean(event.target.closest(".math-edit-panel"));
+  return (
+    event.type === "mousedown" && event.target instanceof Element && Boolean(event.target.closest(".math-edit-panel"))
+  );
 }
 
 export function renderLatex(latex: string, displayMode: boolean) {
@@ -20,7 +22,12 @@ export function renderLatex(latex: string, displayMode: boolean) {
   } catch (error) {
     const message = error instanceof Error ? error.message.replace(/^KaTeX parse error:\s*/i, "") : "公式语法错误";
     return {
-      html: katex.renderToString(latex, { displayMode, throwOnError: false, output: "htmlAndMathml", errorColor: "#c2413b" }),
+      html: katex.renderToString(latex, {
+        displayMode,
+        throwOnError: false,
+        output: "htmlAndMathml",
+        errorColor: "#c2413b"
+      }),
       error: message || escapeHtml(latex)
     };
   }
@@ -97,8 +104,12 @@ function MathView({ node, updateAttributes, deleteNode, selected }: NodeViewProp
           <span className="math-edit-header">
             <span>LaTeX 源码</span>
             <span className="math-edit-actions">
-              <span className="math-edit-hint">{isBlock ? "Ctrl/⌘ + Enter 保存 · Esc 取消" : "Enter 保存 · Esc 取消"}</span>
-              <button type="button" className="math-edit-save" onClick={commit}>保存</button>
+              <span className="math-edit-hint">
+                {isBlock ? "Ctrl/⌘ + Enter 保存 · Esc 取消" : "Enter 保存 · Esc 取消"}
+              </span>
+              <button type="button" className="math-edit-save" onClick={commit}>
+                保存
+              </button>
             </span>
           </span>
           <textarea
@@ -120,9 +131,17 @@ function MathView({ node, updateAttributes, deleteNode, selected }: NodeViewProp
             }}
           />
           <span className="math-live-preview" aria-label="公式预览">
-            {draft.trim() ? <span dangerouslySetInnerHTML={{ __html: draftRendered.html }} /> : <span className="math-preview-empty">输入源码后实时预览</span>}
+            {draft.trim() ? (
+              <span dangerouslySetInnerHTML={{ __html: draftRendered.html }} />
+            ) : (
+              <span className="math-preview-empty">输入源码后实时预览</span>
+            )}
           </span>
-          {draftRendered.error ? <span className="math-error" role="alert">{draftRendered.error}</span> : null}
+          {draftRendered.error ? (
+            <span className="math-error" role="alert">
+              {draftRendered.error}
+            </span>
+          ) : null}
         </span>
       ) : (
         <span className="math-render" dangerouslySetInnerHTML={{ __html: rendered.html }} />

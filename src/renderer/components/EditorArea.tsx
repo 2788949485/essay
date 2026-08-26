@@ -3,6 +3,7 @@ import type { Editor } from "@tiptap/react";
 import { Plus } from "lucide-react";
 import type { BlockMenuCommand } from "../constants";
 import { isEmptyParagraphSelection } from "../utils/text";
+import { EditorErrorBoundary } from "./EditorErrorBoundary";
 
 type EditorAreaProps = {
   editor: Editor | null;
@@ -109,7 +110,11 @@ export function EditorArea(props: EditorAreaProps) {
           </div>
         </FloatingMenu>
       ) : null}
-      {editor ? <EditorContent editor={editor} /> : null}
+      {editor ? (
+        <EditorErrorBoundary>
+          <EditorContent editor={editor} />
+        </EditorErrorBoundary>
+      ) : null}
     </div>
   );
 }

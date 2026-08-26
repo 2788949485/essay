@@ -43,7 +43,5 @@ export function setFindHighlights(editor: Editor, matches: FindMatch[], currentI
 }
 
 export function clearFindHighlights(editor: Editor) {
-  editor.view.dispatch(
-    editor.state.tr.setMeta(findHighlightPluginKey, DecorationSet.empty)
-  );
+  editor.view.dispatch(editor.state.tr.setMeta(findHighlightPluginKey, DecorationSet.empty));
 }

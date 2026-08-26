@@ -55,7 +55,9 @@ export function TopBar(props: TopBarProps) {
     <header className="topbar">
       <div className="topbar-leading">
         <button
-          className={sidebarCollapsed ? "icon-button workspace-nav-toggle is-collapsed" : "icon-button workspace-nav-toggle"}
+          className={
+            sidebarCollapsed ? "icon-button workspace-nav-toggle is-collapsed" : "icon-button workspace-nav-toggle"
+          }
           title={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
           aria-label={sidebarCollapsed ? "展开左侧栏" : "收起左侧栏"}
           onClick={onToggleSidebar}

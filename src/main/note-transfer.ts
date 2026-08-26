@@ -7,6 +7,7 @@ import type { BackupEntry, ExportPayload, NoteRecord, NotesBackup } from "../sha
 
 export function safeExportName(name: string, ext: string) {
   const base = (name || "未命名记录")
+    // eslint-disable-next-line no-control-regex
     .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
     .replace(/\s+/g, " ")
     .trim()
@@ -72,7 +73,9 @@ function tokenAttr(token: MarkdownToken, name: string) {
 }
 
 function cloneMarks(marks: JSONContent["marks"]) {
-  return marks?.length ? marks.map((mark) => ({ ...mark, attrs: mark.attrs ? { ...mark.attrs } : undefined })) : undefined;
+  return marks?.length
+    ? marks.map((mark) => ({ ...mark, attrs: mark.attrs ? { ...mark.attrs } : undefined }))
+    : undefined;
 }
 
 function pushTextNode(target: JSONContent[], text: string, marks: JSONContent["marks"]) {
@@ -270,7 +273,11 @@ function parseTable(tokens: MarkdownToken[], startIndex: number) {
   };
 }
 
-function parseBlocks(tokens: MarkdownToken[], startIndex = 0, stopType?: string): { nodes: JSONContent[]; nextIndex: number } {
+function parseBlocks(
+  tokens: MarkdownToken[],
+  startIndex = 0,
+  stopType?: string
+): { nodes: JSONContent[]; nextIndex: number } {
   const nodes: JSONContent[] = [];
   let index = startIndex;
 
@@ -294,9 +301,9 @@ function parseBlocks(tokens: MarkdownToken[], startIndex = 0, stopType?: string)
       }
       case "paragraph_open": {
         const inline = tokens[index + 1];
-        const children = inline?.type === "inline" ? inline.children ?? [] : [];
+        const children = inline?.type === "inline" ? (inline.children ?? []) : [];
         const fullText = children
-          .map((t) => (t.type === "softbreak" || t.type === "hardbreak" ? "\n" : t.content ?? ""))
+          .map((t) => (t.type === "softbreak" || t.type === "hardbreak" ? "\n" : (t.content ?? "")))
           .join("");
         const blockMatch = fullText.match(/^\s*\$\$([\s\S]+?)\$\$\s*$/);
         if (blockMatch) {
@@ -417,7 +424,12 @@ export function parseBackupNotes(raw: unknown): unknown[] {
   throw new Error("Invalid backup file");
 }
 
-export function parseBackupEntryName(fileName: string, id: string, size: number, fallbackDate: Date): BackupEntry | null {
+export function parseBackupEntryName(
+  fileName: string,
+  id: string,
+  size: number,
+  fallbackDate: Date
+): BackupEntry | null {
   if (!fileName.endsWith(`-${id}.json`)) return null;
   const match = fileName.match(/^(.+?)-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)-[a-f0-9-]{36}\.json$/i);
   return {

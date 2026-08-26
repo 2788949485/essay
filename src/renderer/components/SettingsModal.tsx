@@ -56,7 +56,13 @@ export function SettingsModal(props: SettingsModalProps) {
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <div className="modal settings-modal" role="dialog" aria-modal="true" aria-busy={settingsSaving} onMouseDown={(event) => event.stopPropagation()}>
+      <div
+        className="modal settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-busy={settingsSaving}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="modal-header">
           <span className="modal-kicker">偏好与数据</span>
           <h2>设置</h2>
@@ -74,12 +80,7 @@ export function SettingsModal(props: SettingsModalProps) {
             <div className="settings-group-grid">
               <label className="settings-field settings-field-wide">
                 <span>全局快捷键</span>
-                <input
-                  value={hotkeyDraft}
-                  readOnly
-                  onKeyDown={onHotkeyRecord}
-                  onFocus={onHotkeyFocus}
-                />
+                <input value={hotkeyDraft} readOnly onKeyDown={onHotkeyRecord} onFocus={onHotkeyFocus} />
                 {hotkeyStatus ? <small className="setting-hint">{hotkeyStatus}</small> : null}
               </label>
               <label className="settings-toggle">
@@ -223,10 +224,16 @@ export function SettingsModal(props: SettingsModalProps) {
                   type="password"
                   value={currentPrivacyPinDraft}
                   onChange={(event) => onCurrentPrivacyPinChange(event.target.value)}
-                  placeholder={settings?.hasPrivacyPin ? "关闭加密、更换 PIN、加密导出/导入时需要" : "恢复或导入加密文件时输入对应密码"}
+                  placeholder={
+                    settings?.hasPrivacyPin
+                      ? "关闭加密、更换 PIN、加密导出/导入时需要"
+                      : "恢复或导入加密文件时输入对应密码"
+                  }
                 />
                 <small className="setting-hint">
-                  {settings?.hasPrivacyPin ? "敏感操作会要求再次验证当前 PIN。" : "仅在恢复备份、导出或导入加密文件时使用。"}
+                  {settings?.hasPrivacyPin
+                    ? "敏感操作会要求再次验证当前 PIN。"
+                    : "仅在恢复备份、导出或导入加密文件时使用。"}
                 </small>
               </label>
               <label className="settings-field settings-field-wide">
@@ -235,11 +242,11 @@ export function SettingsModal(props: SettingsModalProps) {
                   type="password"
                   value={privacyPinDraft}
                   onChange={(event) => onPrivacyPinChange(event.target.value)}
-                  placeholder={settings?.hasPrivacyPin ? "留空则不修改；开启加密时可在此重新输入" : "可选，开启加密前需要先输入"}
+                  placeholder={
+                    settings?.hasPrivacyPin ? "留空则不修改；开启加密时可在此重新输入" : "可选，开启加密前需要先输入"
+                  }
                 />
-                <small className="setting-hint">
-                  PIN 只保存在你的会话里，用来解锁和派生本地加密密钥。
-                </small>
+                <small className="setting-hint">PIN 只保存在你的会话里，用来解锁和派生本地加密密钥。</small>
               </label>
               <label className="settings-toggle settings-field-wide">
                 <div className="settings-toggle-copy">
@@ -347,7 +354,9 @@ export function SettingsModal(props: SettingsModalProps) {
                     修改目录
                   </button>
                 </div>
-                {dataActionStatus && !settingsSaving ? <p className="settings-status-text">{dataActionStatus}</p> : null}
+                {dataActionStatus && !settingsSaving ? (
+                  <p className="settings-status-text">{dataActionStatus}</p>
+                ) : null}
               </section>
             </div>
           </section>

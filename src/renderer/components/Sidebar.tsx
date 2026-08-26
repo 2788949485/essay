@@ -12,6 +12,7 @@ import {
   PinOff,
   Plus,
   Search,
+  Settings as SettingsIcon,
   Star,
   StarOff,
   Trash2,
@@ -36,6 +37,7 @@ type SidebarProps = {
   onOpenFind: () => void;
   onCreateNote: () => void;
   onHideWindow: () => void;
+  onOpenSettings: () => void;
   query: string;
   onQueryChange: (value: string) => void;
   viewMode: ViewMode;
@@ -48,7 +50,6 @@ type SidebarProps = {
   selectedTag: string;
   onSelectTag: (tag: string) => void;
   onRemoveTag: (tag: string) => void;
-  recentNotes: NoteRecord[];
   filteredNotes: NoteRecord[];
   activeId: string;
   searchKeyword: string;
@@ -84,6 +85,7 @@ export function Sidebar(props: SidebarProps) {
     onOpenFind,
     onCreateNote,
     onHideWindow,
+    onOpenSettings,
     query,
     onQueryChange,
     viewMode,
@@ -96,7 +98,6 @@ export function Sidebar(props: SidebarProps) {
     selectedTag,
     onSelectTag,
     onRemoveTag,
-    recentNotes,
     filteredNotes,
     activeId,
     searchKeyword,
@@ -113,7 +114,13 @@ export function Sidebar(props: SidebarProps) {
     return (
       <aside className="sidebar">
         <div className="sidebar-rail">
-          <button className="icon-button" title="展开侧边栏" aria-label="展开侧边栏" onClick={onExpandSidebar} type="button">
+          <button
+            className="icon-button"
+            title="展开侧边栏"
+            aria-label="展开侧边栏"
+            onClick={onExpandSidebar}
+            type="button"
+          >
             <PanelLeftOpen size={18} />
           </button>
           <button
@@ -134,8 +141,17 @@ export function Sidebar(props: SidebarProps) {
           >
             <FolderOpen size={18} />
           </button>
-          <button className="icon-button primary-icon" title="新记录" aria-label="新记录" onClick={onCreateNote} type="button">
+          <button
+            className="icon-button primary-icon"
+            title="新记录"
+            aria-label="新记录"
+            onClick={onCreateNote}
+            type="button"
+          >
             <Plus size={18} />
+          </button>
+          <button className="icon-button" title="设置" aria-label="设置" onClick={onOpenSettings} type="button">
+            <SettingsIcon size={18} />
           </button>
           <button className="icon-button" title="隐藏窗口" aria-label="隐藏窗口" onClick={onHideWindow} type="button">
             <EyeOff size={18} />
@@ -153,7 +169,16 @@ export function Sidebar(props: SidebarProps) {
           <span>{leftPaneMode === "document" ? "文档目录" : "文档列表"}</span>
         </div>
         <div className="brand-actions">
-          <button className="icon-button" title="收起侧边栏" aria-label="收起侧边栏" onClick={onCollapseSidebar} type="button">
+          <button className="icon-button" title="设置" aria-label="设置" onClick={onOpenSettings} type="button">
+            <SettingsIcon size={18} />
+          </button>
+          <button
+            className="icon-button"
+            title="收起侧边栏"
+            aria-label="收起侧边栏"
+            onClick={onCollapseSidebar}
+            type="button"
+          >
             <PanelLeftClose size={18} />
           </button>
           <button className="icon-button" title="隐藏窗口" aria-label="隐藏窗口" onClick={onHideWindow} type="button">
@@ -225,6 +250,17 @@ export function Sidebar(props: SidebarProps) {
                 <span className="search-box-label">检索</span>
                 <input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="搜索记录" />
               </div>
+              {query ? (
+                <button
+                  type="button"
+                  className="search-box-clear"
+                  aria-label="清除搜索"
+                  title="清除搜索"
+                  onClick={() => onQueryChange("")}
+                >
+                  <X size={14} />
+                </button>
+              ) : null}
             </div>
 
             <div className="view-switch" aria-label="记录视图">
@@ -295,24 +331,6 @@ export function Sidebar(props: SidebarProps) {
                       <X size={12} />
                     </button>
                   </div>
-                ))}
-              </div>
-            ) : null}
-
-            {viewMode === "recent" ? (
-              <div className="recent-timeline" aria-label="最近编辑时间线">
-                {recentNotes.map((note) => (
-                  <button
-                    key={note.id}
-                    type="button"
-                    className={note.id === activeId ? "is-active" : ""}
-                    onClick={() => onSelectNote(note.id)}
-                  >
-                    <span>{formatTime(note.updatedAt)}</span>
-                    <strong>
-                      <HighlightedText text={note.title} keyword={searchKeyword} />
-                    </strong>
-                  </button>
                 ))}
               </div>
             ) : null}

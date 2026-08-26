@@ -1,4 +1,16 @@
-const EDITOR_INTERACTIVE_BLOCK_TAGS = new Set(["P", "H1", "H2", "H3", "BLOCKQUOTE", "PRE", "UL", "OL", "TABLE", "HR", "IMG"]);
+const EDITOR_INTERACTIVE_BLOCK_TAGS = new Set([
+  "P",
+  "H1",
+  "H2",
+  "H3",
+  "BLOCKQUOTE",
+  "PRE",
+  "UL",
+  "OL",
+  "TABLE",
+  "HR",
+  "IMG"
+]);
 
 /** 从事件目标向上找到编辑器里的顶级可交互块（段落、表格、折叠块等） */
 export function findInteractiveEditorBlock(target: globalThis.Node | null, root: HTMLElement | null) {

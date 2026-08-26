@@ -585,6 +585,36 @@
   padding-top: 3px;
 }
 
+.editor-error-fallback {
+  display: grid;
+  gap: 10px;
+  justify-items: start;
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  background: var(--surface-muted);
+  color: var(--muted-text);
+  margin: 20px 0;
+  padding: 20px;
+  font-size: 13px;
+}
+
+.editor-error-fallback strong {
+  color: var(--text-color);
+}
+
+.editor-error-fallback p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.editor-error-fallback button {
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  color: var(--text-color);
+  padding: 6px 14px;
+}
+
 .editor-surface .is-editor-empty:first-child::before {
   float: left;
   height: 0;

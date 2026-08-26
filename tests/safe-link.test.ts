@@ -20,9 +20,8 @@ function correctLink(content: object[]) {
     doc: schema.nodeFromJSON({ type: "doc", content: [{ type: "paragraph", content }] }),
     plugins: [safeAutolinkPlugin()]
   });
-  return state
-    .applyTransaction(state.tr.insert(state.doc.content.size - 1, schema.text(" ")))
-    .state.doc.toJSON().content[0].content;
+  return state.applyTransaction(state.tr.insert(state.doc.content.size - 1, schema.text(" "))).state.doc.toJSON()
+    .content[0].content;
 }
 
 describe("safe link", () => {

@@ -15,10 +15,23 @@ type LinkDialogProps = {
   onClose: () => void;
 };
 
-export function LinkDialog({ dialog, linkDraft, linkInputRef, onDraftChange, onApply, onRemove, onClose }: LinkDialogProps) {
+export function LinkDialog({
+  dialog,
+  linkDraft,
+  linkInputRef,
+  onDraftChange,
+  onApply,
+  onRemove,
+  onClose
+}: LinkDialogProps) {
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <div className="modal link-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+      <div
+        className="modal link-modal"
+        role="dialog"
+        aria-modal="true"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="modal-header">
           <span className="modal-kicker">文本链接</span>
           <h2>编辑链接</h2>
@@ -70,7 +83,12 @@ type HistoryModalProps = {
 export function HistoryModal({ entries, status, onRestore, onClose }: HistoryModalProps) {
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <div className="modal history-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+      <div
+        className="modal history-modal"
+        role="dialog"
+        aria-modal="true"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="modal-header">
           <span className="modal-kicker">文稿回溯</span>
           <h2>版本历史</h2>
@@ -82,7 +100,9 @@ export function HistoryModal({ entries, status, onRestore, onClose }: HistoryMod
             <div key={entry.fileName} className="history-item">
               <div>
                 <strong>{formatTime(entry.createdAt)}</strong>
-                <span>{entry.prefix} · {Math.max(1, Math.round(entry.size / 1024))} KB</span>
+                <span>
+                  {entry.prefix} · {Math.max(1, Math.round(entry.size / 1024))} KB
+                </span>
               </div>
               <button type="button" onClick={() => onRestore(entry)}>
                 恢复
@@ -112,7 +132,12 @@ type ConfirmDialogProps = {
 export function ConfirmDialog({ dialog, busy, onClose, onConfirm }: ConfirmDialogProps) {
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <div className="modal confirm-modal" role="alertdialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
+      <div
+        className="modal confirm-modal"
+        role="alertdialog"
+        aria-modal="true"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className={dialog.tone === "danger" ? "confirm-icon danger" : "confirm-icon"}>
           {dialog.icon === "history" ? <ArchiveRestore size={20} /> : <Trash2 size={20} />}
         </div>
@@ -149,7 +174,14 @@ type PrivacyLockProps = {
   onUnlock: () => void;
 };
 
-export function PrivacyLock({ hasPrivacyPin, unlockPin, unlockError, unlockBusy, onUnlockPinChange, onUnlock }: PrivacyLockProps) {
+export function PrivacyLock({
+  hasPrivacyPin,
+  unlockPin,
+  unlockError,
+  unlockBusy,
+  onUnlockPinChange,
+  onUnlock
+}: PrivacyLockProps) {
   return (
     <div className="privacy-lock" role="dialog" aria-modal="true">
       <div className="privacy-panel">

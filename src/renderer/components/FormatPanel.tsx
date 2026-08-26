@@ -153,22 +153,58 @@ export function FormatPanel(props: FormatPanelProps) {
       <div className="format-panel-group">
         <span className="format-panel-label">样式</span>
         <div className="format-grid compact">
-          <button type="button" className={editor?.isActive("bold") ? "format-icon-button is-active" : "format-icon-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleBold().run()} disabled={disabled}>
+          <button
+            type="button"
+            className={editor?.isActive("bold") ? "format-icon-button is-active" : "format-icon-button"}
+            onMouseDown={keepEditorFocus}
+            onClick={() => editor?.chain().focus().toggleBold().run()}
+            disabled={disabled}
+          >
             <Bold size={16} />
           </button>
-          <button type="button" className={editor?.isActive("italic") ? "format-icon-button is-active" : "format-icon-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleItalic().run()} disabled={disabled}>
+          <button
+            type="button"
+            className={editor?.isActive("italic") ? "format-icon-button is-active" : "format-icon-button"}
+            onMouseDown={keepEditorFocus}
+            onClick={() => editor?.chain().focus().toggleItalic().run()}
+            disabled={disabled}
+          >
             <Italic size={16} />
           </button>
-          <button type="button" className={editor?.isActive("underline") ? "format-icon-button is-active" : "format-icon-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleUnderline().run()} disabled={disabled}>
+          <button
+            type="button"
+            className={editor?.isActive("underline") ? "format-icon-button is-active" : "format-icon-button"}
+            onMouseDown={keepEditorFocus}
+            onClick={() => editor?.chain().focus().toggleUnderline().run()}
+            disabled={disabled}
+          >
             <UnderlineIcon size={16} />
           </button>
-          <button type="button" className={editor?.isActive("strike") ? "format-icon-button is-active" : "format-icon-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleStrike().run()} disabled={disabled}>
+          <button
+            type="button"
+            className={editor?.isActive("strike") ? "format-icon-button is-active" : "format-icon-button"}
+            onMouseDown={keepEditorFocus}
+            onClick={() => editor?.chain().focus().toggleStrike().run()}
+            disabled={disabled}
+          >
             <Strikethrough size={16} />
           </button>
-          <button type="button" className={editor?.isActive("highlight") ? "format-icon-button is-active" : "format-icon-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleHighlight().run()} disabled={disabled}>
+          <button
+            type="button"
+            className={editor?.isActive("highlight") ? "format-icon-button is-active" : "format-icon-button"}
+            onMouseDown={keepEditorFocus}
+            onClick={() => editor?.chain().focus().toggleHighlight().run()}
+            disabled={disabled}
+          >
             <Highlighter size={16} />
           </button>
-          <button type="button" className={editor?.isActive("link") ? "format-icon-button is-active" : "format-icon-button"} onMouseDown={keepEditorFocus} onClick={onEditLink} disabled={disabled}>
+          <button
+            type="button"
+            className={editor?.isActive("link") ? "format-icon-button is-active" : "format-icon-button"}
+            onMouseDown={keepEditorFocus}
+            onClick={onEditLink}
+            disabled={disabled}
+          >
             <Link2 size={16} />
           </button>
         </div>
@@ -177,13 +213,33 @@ export function FormatPanel(props: FormatPanelProps) {
       <div className="format-panel-group">
         <span className="format-panel-label">对齐</span>
         <div className="format-grid compact">
-          <button type="button" className={editor?.isActive({ textAlign: "left" }) ? "format-icon-button is-active" : "format-icon-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().setTextAlign("left").run()} disabled={disabled}>
+          <button
+            type="button"
+            className={editor?.isActive({ textAlign: "left" }) ? "format-icon-button is-active" : "format-icon-button"}
+            onMouseDown={keepEditorFocus}
+            onClick={() => editor?.chain().focus().setTextAlign("left").run()}
+            disabled={disabled}
+          >
             <AlignLeft size={16} />
           </button>
-          <button type="button" className={editor?.isActive({ textAlign: "center" }) ? "format-icon-button is-active" : "format-icon-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().setTextAlign("center").run()} disabled={disabled}>
+          <button
+            type="button"
+            className={
+              editor?.isActive({ textAlign: "center" }) ? "format-icon-button is-active" : "format-icon-button"
+            }
+            onMouseDown={keepEditorFocus}
+            onClick={() => editor?.chain().focus().setTextAlign("center").run()}
+            disabled={disabled}
+          >
             <AlignCenter size={16} />
           </button>
-          <button type="button" className={editor?.isActive({ textAlign: "right" }) ? "format-icon-button is-active" : "format-icon-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().setTextAlign("right").run()} disabled={disabled}>
+          <button
+            type="button"
+            className={editor?.isActive({ textAlign: "right" }) ? "format-icon-button is-active" : "format-icon-button"}
+            onMouseDown={keepEditorFocus}
+            onClick={() => editor?.chain().focus().setTextAlign("right").run()}
+            disabled={disabled}
+          >
             <AlignRight size={16} />
           </button>
         </div>
@@ -192,15 +248,33 @@ export function FormatPanel(props: FormatPanelProps) {
       <div className="format-panel-group">
         <span className="format-panel-label">块</span>
         <div className="format-grid">
-          <button type="button" className={editor?.isActive("bulletList") ? "format-button is-active" : "format-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleBulletList().run()} disabled={disabled}>
+          <button
+            type="button"
+            className={editor?.isActive("bulletList") ? "format-button is-active" : "format-button"}
+            onMouseDown={keepEditorFocus}
+            onClick={() => editor?.chain().focus().toggleBulletList().run()}
+            disabled={disabled}
+          >
             <List size={16} />
             列表
           </button>
-          <button type="button" className={editor?.isActive("orderedList") ? "format-button is-active" : "format-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleOrderedList().run()} disabled={disabled}>
+          <button
+            type="button"
+            className={editor?.isActive("orderedList") ? "format-button is-active" : "format-button"}
+            onMouseDown={keepEditorFocus}
+            onClick={() => editor?.chain().focus().toggleOrderedList().run()}
+            disabled={disabled}
+          >
             <ListOrdered size={16} />
             编号
           </button>
-          <button type="button" className={editor?.isActive("taskList") ? "format-button is-active" : "format-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleTaskList().run()} disabled={disabled}>
+          <button
+            type="button"
+            className={editor?.isActive("taskList") ? "format-button is-active" : "format-button"}
+            onMouseDown={keepEditorFocus}
+            onClick={() => editor?.chain().focus().toggleTaskList().run()}
+            disabled={disabled}
+          >
             <CheckSquare size={16} />
             任务
           </button>
@@ -214,15 +288,34 @@ export function FormatPanel(props: FormatPanelProps) {
             <ChevronDown size={16} />
             折叠块
           </button>
-          <button type="button" className="format-button" onMouseDown={keepEditorFocus} onClick={onInsertMathBlock} disabled={disabled} title="插入公式（Ctrl/Cmd + Shift + E）">
+          <button
+            type="button"
+            className="format-button"
+            onMouseDown={keepEditorFocus}
+            onClick={onInsertMathBlock}
+            disabled={disabled}
+            title="插入公式（Ctrl/Cmd + Shift + E）"
+          >
             <Sigma size={16} />
             公式
           </button>
-          <button type="button" className={editor?.isActive("codeBlock") ? "format-button is-active" : "format-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().toggleCodeBlock().run()} disabled={disabled}>
+          <button
+            type="button"
+            className={editor?.isActive("codeBlock") ? "format-button is-active" : "format-button"}
+            onMouseDown={keepEditorFocus}
+            onClick={() => editor?.chain().focus().toggleCodeBlock().run()}
+            disabled={disabled}
+          >
             <Code2 size={16} />
             代码
           </button>
-          <button type="button" className={tableToolbarVisible ? "format-button is-active" : "format-button"} onMouseDown={keepEditorFocus} onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()} disabled={disabled}>
+          <button
+            type="button"
+            className={tableToolbarVisible ? "format-button is-active" : "format-button"}
+            onMouseDown={keepEditorFocus}
+            onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+            disabled={disabled}
+          >
             <Table2 size={16} />
             表格
           </button>
@@ -234,7 +327,11 @@ export function FormatPanel(props: FormatPanelProps) {
         <div className="format-grid">
           <button
             type="button"
-            className={currentBlockFormat.focusMode ? "format-button format-decor-button is-active" : "format-button format-decor-button"}
+            className={
+              currentBlockFormat.focusMode
+                ? "format-button format-decor-button is-active"
+                : "format-button format-decor-button"
+            }
             onMouseDown={keepEditorFocus}
             onClick={() => onApplyBlockFormat({ focusMode: !currentBlockFormat.focusMode })}
             disabled={disabled}
@@ -246,7 +343,11 @@ export function FormatPanel(props: FormatPanelProps) {
           </button>
           <button
             type="button"
-            className={currentBlockFormat.cardMode ? "format-button format-decor-button is-active" : "format-button format-decor-button"}
+            className={
+              currentBlockFormat.cardMode
+                ? "format-button format-decor-button is-active"
+                : "format-button format-decor-button"
+            }
             onMouseDown={keepEditorFocus}
             onClick={() => onApplyBlockFormat({ cardMode: !currentBlockFormat.cardMode })}
             disabled={disabled}
@@ -265,7 +366,9 @@ export function FormatPanel(props: FormatPanelProps) {
             <button
               key={color.id}
               type="button"
-              className={currentBlockFormat.colorToken === color.id ? "format-color-button is-active" : "format-color-button"}
+              className={
+                currentBlockFormat.colorToken === color.id ? "format-color-button is-active" : "format-color-button"
+              }
               style={{ "--format-swatch": color.swatch } as React.CSSProperties}
               title={color.label}
               aria-label={color.label}
@@ -278,7 +381,11 @@ export function FormatPanel(props: FormatPanelProps) {
           ))}
           <button
             type="button"
-            className={currentBlockFormat.customColor ? "format-color-button format-color-button-rainbow is-active" : "format-color-button format-color-button-rainbow"}
+            className={
+              currentBlockFormat.customColor
+                ? "format-color-button format-color-button-rainbow is-active"
+                : "format-color-button format-color-button-rainbow"
+            }
             title="自定义颜色"
             aria-label="自定义颜色"
             onMouseDown={keepEditorFocus}
@@ -288,7 +395,13 @@ export function FormatPanel(props: FormatPanelProps) {
             {currentBlockFormat.customColor ? <Check size={14} /> : null}
           </button>
         </div>
-        <input ref={customColorInputRef} className="format-color-input" type="color" value={currentColorValue} onChange={onCustomColorChange} />
+        <input
+          ref={customColorInputRef}
+          className="format-color-input"
+          type="color"
+          value={currentColorValue}
+          onChange={onCustomColorChange}
+        />
       </div>
 
       <div className="format-panel-group">
@@ -301,7 +414,13 @@ export function FormatPanel(props: FormatPanelProps) {
               className={currentFontPresetId === preset.id ? "format-font-button is-active" : "format-font-button"}
               title={preset.label}
               aria-label={preset.label}
-              style={{ "--format-font-family": preset.family || 'var(--editor-font-family, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif)' } as React.CSSProperties}
+              style={
+                {
+                  "--format-font-family":
+                    preset.family ||
+                    'var(--editor-font-family, "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif)'
+                } as React.CSSProperties
+              }
               onMouseDown={keepEditorFocus}
               onClick={() => onFontPreset(preset.id)}
               disabled={!settingsReady}
@@ -317,22 +436,52 @@ export function FormatPanel(props: FormatPanelProps) {
         <div className="format-panel-group">
           <span className="format-panel-label">表格</span>
           <div className="format-grid">
-            <button type="button" className="format-button" onMouseDown={keepEditorFocus} onClick={() => onRunTableCommand(() => editor.chain().focus().addRowBefore().run())}>
+            <button
+              type="button"
+              className="format-button"
+              onMouseDown={keepEditorFocus}
+              onClick={() => onRunTableCommand(() => editor.chain().focus().addRowBefore().run())}
+            >
               上插行
             </button>
-            <button type="button" className="format-button" onMouseDown={keepEditorFocus} onClick={() => onRunTableCommand(() => editor.chain().focus().addRowAfter().run())}>
+            <button
+              type="button"
+              className="format-button"
+              onMouseDown={keepEditorFocus}
+              onClick={() => onRunTableCommand(() => editor.chain().focus().addRowAfter().run())}
+            >
               下插行
             </button>
-            <button type="button" className="format-button" onMouseDown={keepEditorFocus} onClick={() => onRunTableCommand(() => editor.chain().focus().addColumnBefore().run())}>
+            <button
+              type="button"
+              className="format-button"
+              onMouseDown={keepEditorFocus}
+              onClick={() => onRunTableCommand(() => editor.chain().focus().addColumnBefore().run())}
+            >
               左插列
             </button>
-            <button type="button" className="format-button" onMouseDown={keepEditorFocus} onClick={() => onRunTableCommand(() => editor.chain().focus().addColumnAfter().run())}>
+            <button
+              type="button"
+              className="format-button"
+              onMouseDown={keepEditorFocus}
+              onClick={() => onRunTableCommand(() => editor.chain().focus().addColumnAfter().run())}
+            >
               右插列
             </button>
-            <button type="button" className="format-button" onMouseDown={keepEditorFocus} onClick={() => onRunTableCommand(() => editor.chain().focus().deleteRow().run())}>
+            <button
+              type="button"
+              className="format-button"
+              onMouseDown={keepEditorFocus}
+              onClick={() => onRunTableCommand(() => editor.chain().focus().deleteRow().run())}
+            >
               删行
             </button>
-            <button type="button" className="format-button danger" onMouseDown={keepEditorFocus} onClick={() => onRunTableCommand(() => editor.chain().focus().deleteTable().run())}>
+            <button
+              type="button"
+              className="format-button danger"
+              onMouseDown={keepEditorFocus}
+              onClick={() => onRunTableCommand(() => editor.chain().focus().deleteTable().run())}
+            >
               删表
             </button>
           </div>

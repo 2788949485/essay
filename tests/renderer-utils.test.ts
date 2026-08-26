@@ -123,7 +123,7 @@ describe("parseTagsInput", () => {
 
 describe("normalizeFolderInput", () => {
   it("替换非法字符并截断", () => {
-    expect(normalizeFolderInput('a/b\\c:d')).toBe("a_b_c_d");
+    expect(normalizeFolderInput("a/b\\c:d")).toBe("a_b_c_d");
     expect(normalizeFolderInput("x".repeat(50))).toHaveLength(40);
   });
 });
@@ -200,7 +200,14 @@ describe("getCurrentFontPresetId", () => {
 
 describe("formatHotkeyEvent", () => {
   const mockEvent = (key: string, mods: Partial<Record<"ctrlKey" | "altKey" | "shiftKey" | "metaKey", boolean>> = {}) =>
-    ({ key, ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...mods }) as React.KeyboardEvent<HTMLInputElement>;
+    ({
+      key,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      metaKey: false,
+      ...mods
+    }) as React.KeyboardEvent<HTMLInputElement>;
 
   it("组合键格式化为 Electron accelerator", () => {
     expect(formatHotkeyEvent(mockEvent("j", { ctrlKey: true, altKey: true }))).toBe("CommandOrControl+Alt+J");

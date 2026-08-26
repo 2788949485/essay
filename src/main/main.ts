@@ -1,4 +1,4 @@
-﻿import {
+import {
   app,
   BrowserWindow,
   clipboard,
@@ -7,7 +7,9 @@
   ipcMain,
   Menu,
   nativeImage,
+  net,
   powerMonitor,
+  protocol,
   shell,
   Tray
 } from "electron";
@@ -16,8 +18,9 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { buildApplicationMenuTemplate, buildTrayMenuTemplate } from "./app-shell.js";
-import { buildHtmlExport } from "./html-export.js";
+import { buildHtmlExport, inlineAssetImages } from "./html-export.js";
 import {
   DEFAULT_HOTKEY,
   DEFAULT_SETTINGS,
@@ -74,7 +77,8 @@ const ALLOWED_BATCH_EXPORT_FORMATS = new Set(["html", "json", "txt", "md"]);
 const ALLOWED_EXTERNAL_PROTOCOLS = new Set(["http:", "https:", "mailto:"]);
 const DB_FLUSH_DELAY_MS = 900;
 const IDLE_LOCK_CHECK_INTERVAL_MS = 15_000;
-const DEBUG_LOG_PATH = process.env.SUIJI_DEBUG_LOG || (app.isPackaged ? "" : "d:\\zhuomian\\essay\\runtime_cache\\suiji-debug.log");
+const DEBUG_LOG_PATH =
+  process.env.SUIJI_DEBUG_LOG || (app.isPackaged ? "" : "d:\\zhuomian\\essay\\runtime_cache\\suiji-debug.log");
 const DEBUG_PORT = process.env.SUIJI_DEBUG_PORT || "";
 
 let mainWindow: BrowserWindow | null = null;
@@ -84,6 +88,7 @@ let isFlushingBeforeQuit = false;
 let dataRootDir = "";
 let notesDir = "";
 let backupsDir = "";
+let attachmentsDir = "";
 let settingsPath = "";
 let databasePath = "";
 let databaseVirtualPath = "";
@@ -104,6 +109,32 @@ const PIN_FAILURE_LOCK_THRESHOLD = 5;
 type StorageConfig = {
   dataRoot?: string;
 };
+
+const ASSET_PROTOCOL = "suiji-asset";
+const ASSET_URL_PREFIX = `${ASSET_PROTOCOL}://`;
+const MAX_ASSET_BYTES = 20 * 1024 * 1024;
+
+// 附件图片走自定义协议落盘加载，不进文档 JSON/数据库
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: ASSET_PROTOCOL,
+    privileges: { standard: false, secure: true, supportFetchAPI: true, stream: true }
+  }
+]);
+
+function assetUrlForFileName(fileName: string) {
+  return `${ASSET_URL_PREFIX}${fileName}`;
+}
+
+function registerAssetProtocol() {
+  protocol.handle(ASSET_PROTOCOL, (request) => {
+    const fileName = path.basename(decodeURIComponent(request.url.slice(ASSET_URL_PREFIX.length)));
+    if (!fileName || fileName !== request.url.slice(ASSET_URL_PREFIX.length)) {
+      return new Response(null, { status: 403 });
+    }
+    return net.fetch(pathToFileURL(path.join(attachmentsDir, fileName)).toString());
+  });
+}
 
 const gotTheLock = app.requestSingleInstanceLock();
 writeDebugLog(`startup gotTheLock=${gotTheLock} argv=${process.argv.join(" ")}`);
@@ -168,11 +199,13 @@ async function ensureStorage() {
   dataRootDir = dataRoot;
   notesDir = path.join(dataRoot, "notes");
   backupsDir = path.join(dataRoot, "backups");
+  attachmentsDir = path.join(dataRoot, "attachments");
   settingsPath = path.join(dataRoot, "settings.json");
   databasePath = path.join(dataRoot, "suiji.db");
   databaseVirtualPath = `/suiji-${createHash("sha1").update(dataRoot).digest("hex").slice(0, 16)}-${Date.now()}.db`;
   await fs.mkdir(notesDir, { recursive: true });
   await fs.mkdir(backupsDir, { recursive: true });
+  await fs.mkdir(attachmentsDir, { recursive: true });
   settingsCache = null;
   const settings = await readStoredSettings();
   if (isStorageEncryptionEnabled(settings) && !activePrivacyPin) {
@@ -245,7 +278,12 @@ async function readStoredTextFile(filePath: string) {
 }
 
 async function writeStoredBytesFile(filePath: string, content: Uint8Array, settings: StoredSettings) {
-  const payload = encodeStoredBytes(content, activePrivacyPin, settings.privacyPinSalt, isStorageEncryptionEnabled(settings));
+  const payload = encodeStoredBytes(
+    content,
+    activePrivacyPin,
+    settings.privacyPinSalt,
+    isStorageEncryptionEnabled(settings)
+  );
   await atomicWriteBytes(filePath, payload);
 }
 
@@ -387,7 +425,10 @@ function normalizeTags(value: unknown) {
 }
 
 function normalizeFolder(value: unknown) {
-  return coerceString(value, "", MAX_FOLDER_LENGTH).replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").trim();
+  // eslint-disable-next-line no-control-regex
+  return coerceString(value, "", MAX_FOLDER_LENGTH)
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
+    .trim();
 }
 
 function validateExternalUrl(value: string) {
@@ -530,7 +571,7 @@ async function buildPdfExport(note: NoteRecord): Promise<Uint8Array> {
   });
 
   try {
-    const html = buildHtmlExport(note);
+    const html = buildHtmlExport({ ...note, content: await inlineAssetImages(note.content, attachmentsDir) });
     await window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
     await window.webContents.executeJavaScript(
       "document.fonts && document.fonts.ready ? document.fonts.ready.then(() => true) : Promise.resolve(true)",
@@ -664,19 +705,6 @@ function dbRows<T>(sql: string, bind: unknown[] = []) {
     }
   });
   return rows;
-}
-
-function dbValue<T>(sql: string, bind: unknown[] = []) {
-  let value: T | undefined;
-  notesDb.exec({
-    sql,
-    bind,
-    rowMode: "array",
-    callback: (row: T[]) => {
-      value = row[0];
-    }
-  });
-  return value;
 }
 
 async function persistNotesDatabase(settingsOverride?: StoredSettings) {
@@ -848,7 +876,9 @@ function updateNoteMetaFields(
 
 async function syncJsonNotesToDatabase() {
   const files = await fs.readdir(notesDir).catch(() => []);
-  const noteFiles = files.filter((file) => file.endsWith(".json") && NOTE_ID_PATTERN.test(path.basename(file, ".json")));
+  const noteFiles = files.filter(
+    (file) => file.endsWith(".json") && NOTE_ID_PATTERN.test(path.basename(file, ".json"))
+  );
   if (noteFiles.length === 0) return;
 
   const corruptDir = path.join(notesDir, "corrupt");
@@ -961,7 +991,12 @@ async function refreshPinHashAfterUnlock(settings: StoredSettings, pin: string) 
   return next;
 }
 
-async function rewriteStoredJsonFiles(directory: string, currentPin: string | null, nextSettings: StoredSettings, nextPin: string | null) {
+async function rewriteStoredJsonFiles(
+  directory: string,
+  currentPin: string | null,
+  nextSettings: StoredSettings,
+  nextPin: string | null
+) {
   const entries = await fs.readdir(directory, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
@@ -1019,12 +1054,11 @@ async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<App
   const verifiedCurrentPin = requiresCurrentPin
     ? resolveVerifiedPin(current, payload.currentPrivacyPin, activePrivacyPin, false)
     : activePrivacyPin;
-  const nextPin =
-    payload.clearPrivacyPin
-      ? null
-      : typeof payload.privacyPin === "string" && payload.privacyPin.trim()
-        ? payload.privacyPin.trim().slice(0, MAX_PIN_LENGTH)
-        : verifiedCurrentPin;
+  const nextPin = payload.clearPrivacyPin
+    ? null
+    : typeof payload.privacyPin === "string" && payload.privacyPin.trim()
+      ? payload.privacyPin.trim().slice(0, MAX_PIN_LENGTH)
+      : verifiedCurrentPin;
   const next: StoredSettings = {
     ...current,
     hotkey: payload.hotkey || DEFAULT_HOTKEY,
@@ -1214,7 +1248,10 @@ async function importEncryptedExport(
         title: "导入加密导出",
         properties: ["openFile"],
         filters: [
-          { name: "Suiji Encrypted Export", extensions: [ENCRYPTED_NOTE_EXPORT_EXTENSION, ENCRYPTED_BATCH_EXPORT_EXTENSION] },
+          {
+            name: "Suiji Encrypted Export",
+            extensions: [ENCRYPTED_NOTE_EXPORT_EXTENSION, ENCRYPTED_BATCH_EXPORT_EXTENSION]
+          },
           { name: "All Files", extensions: ["*"] }
         ]
       })
@@ -1222,7 +1259,10 @@ async function importEncryptedExport(
         title: "导入加密导出",
         properties: ["openFile"],
         filters: [
-          { name: "Suiji Encrypted Export", extensions: [ENCRYPTED_NOTE_EXPORT_EXTENSION, ENCRYPTED_BATCH_EXPORT_EXTENSION] },
+          {
+            name: "Suiji Encrypted Export",
+            extensions: [ENCRYPTED_NOTE_EXPORT_EXTENSION, ENCRYPTED_BATCH_EXPORT_EXTENSION]
+          },
           { name: "All Files", extensions: ["*"] }
         ]
       });
@@ -1245,7 +1285,10 @@ async function importEncryptedExport(
 
   const raw = await readImportedBackupText(result.filePaths[0], options?.currentPrivacyPin);
   const parsed = parseEncryptedExportBundle(JSON.parse(raw));
-  const imported = await importSanitizedNotes(parsed.notes, parsed.kind === "note-export" ? "import-note" : "import-batch");
+  const imported = await importSanitizedNotes(
+    parsed.notes,
+    parsed.kind === "note-export" ? "import-note" : "import-batch"
+  );
   return {
     ...imported,
     kind: parsed.kind
@@ -1434,7 +1477,9 @@ async function importMarkdownNotes(): Promise<NoteRecord[]> {
   return sortNotes(imported);
 }
 
-async function batchExportNotes(rawPayload: BatchExportRequest | BatchExportFormat): Promise<string | { directory: string; count: number } | null> {
+async function batchExportNotes(
+  rawPayload: BatchExportRequest | BatchExportFormat
+): Promise<string | { directory: string; count: number } | null> {
   const payload = sanitizeBatchExportRequest(rawPayload);
   const settings = await readStoredSettings();
   const canEncrypt = true;
@@ -1514,7 +1559,8 @@ async function batchExportNotes(rawPayload: BatchExportRequest | BatchExportForm
   const directory = result.filePaths[0];
   for (const note of notes) {
     const filePath = await uniqueExportPath(directory, safeExportName(note.title, payload.format));
-    await atomicWriteFile(filePath, buildExportText(note, payload.format));
+    const exportNote = { ...note, content: await inlineAssetImages(note.content, attachmentsDir) };
+    await atomicWriteFile(filePath, buildExportText(exportNote, payload.format));
   }
 
   return { directory, count: notes.length };
@@ -1548,7 +1594,6 @@ async function deleteNote(id: string) {
 
 async function restoreNote(id: string): Promise<NoteRecord> {
   await readNote(id);
-  const now = new Date().toISOString();
   await backupExistingNote(id, "restore-trash");
   updateNoteMetaFields(id, { trashedAt: null });
   notesDbDirty = true;
@@ -1843,8 +1888,7 @@ function createApplicationMenu() {
             type: "info",
             title: "关于随记",
             message: "随记",
-            detail:
-              `版本：${app.getVersion()}\n版权：Copyright (c) 2026 Suiji. All rights reserved.\n\n随记是快捷呼出的本地自动保存富文本记录工具。可选启用本地加密来保护数据库、历史版本和整库备份；单篇与批量导出可按需选择明文或加密。`
+            detail: `版本：${app.getVersion()}\n版权：Copyright (c) 2026 Suiji. All rights reserved.\n\n随记是快捷呼出的本地自动保存富文本记录工具。可选启用本地加密来保护数据库、历史版本和整库备份；单篇与批量导出可按需选择明文或加密。`
           } as const;
           if (mainWindow) {
             void dialog.showMessageBox(mainWindow, options);
@@ -2011,7 +2055,8 @@ function registerIpc() {
       return result.filePath;
     }
 
-    await atomicWriteFile(result.filePath, buildExportText(payload.note, payload.format));
+    const exportNote = { ...payload.note, content: await inlineAssetImages(payload.note.content, attachmentsDir) };
+    await atomicWriteFile(result.filePath, buildExportText(exportNote, payload.format));
     return result.filePath;
   });
   ipcMain.handle("settings:get", readSettings);
@@ -2027,7 +2072,7 @@ function registerIpc() {
     const candidate = coerceString(hotkey, "", 120).trim();
     if (!candidate) return false;
     globalShortcut.unregisterAll();
-    let ok = false;
+    let ok: boolean;
     try {
       ok = globalShortcut.register(candidate, () => undefined);
       if (ok) globalShortcut.unregister(candidate);
@@ -2087,6 +2132,25 @@ function registerIpc() {
   ipcMain.handle("window:hide", () => {
     hideWindow();
   });
+  ipcMain.handle("notes:save-asset", async (_event, payload: unknown) => {
+    const body = payload as { base64?: unknown; ext?: unknown };
+    const base64 = typeof body.base64 === "string" ? body.base64 : "";
+    const ext =
+      typeof body.ext === "string"
+        ? body.ext
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, "")
+            .slice(0, 10)
+        : "";
+    if (!base64 || !ext) throw new Error("Invalid asset payload");
+    const buffer = Buffer.from(base64, "base64");
+    if (buffer.byteLength > MAX_ASSET_BYTES) throw new Error("图片超过 20MB 上限");
+    await ensureStorage();
+    await fs.mkdir(attachmentsDir, { recursive: true });
+    const fileName = `${randomUUID()}.${ext}`;
+    await fs.writeFile(path.join(attachmentsDir, fileName), buffer);
+    return assetUrlForFileName(fileName);
+  });
 }
 
 if (gotTheLock) {
@@ -2102,6 +2166,7 @@ if (gotTheLock) {
       openAtLogin: settings.launchAtLogin,
       openAsHidden: settings.startHidden
     });
+    registerAssetProtocol();
     registerIpc();
     createApplicationMenu();
     createWindow();
@@ -2149,4 +2214,3 @@ if (gotTheLock) {
     }
   });
 }
-

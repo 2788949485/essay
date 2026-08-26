@@ -165,7 +165,18 @@ export function getContentPlainText(content: JSONContent | undefined) {
 
     (node.content ?? []).forEach(walk);
 
-    if (["paragraph", "heading", "blockquote", "codeBlock", "listItem", "taskItem", "collapsibleBlock", "tableRow"].includes(node.type ?? "")) {
+    if (
+      [
+        "paragraph",
+        "heading",
+        "blockquote",
+        "codeBlock",
+        "listItem",
+        "taskItem",
+        "collapsibleBlock",
+        "tableRow"
+      ].includes(node.type ?? "")
+    ) {
       parts.push("\n");
     }
     if (["bulletList", "orderedList", "taskList", "table"].includes(node.type ?? "")) {
@@ -174,7 +185,11 @@ export function getContentPlainText(content: JSONContent | undefined) {
   }
 
   walk(content);
-  return parts.join("").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return parts
+    .join("")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export function sortNotes(notes: NoteRecord[]) {
@@ -199,7 +214,11 @@ export function parseTagsInput(value: string) {
 }
 
 export function normalizeFolderInput(value: string) {
-  return value.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").trim().slice(0, 40);
+  // eslint-disable-next-line no-control-regex -- 清洗文件系统非法字符
+  return value
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
+    .trim()
+    .slice(0, 40);
 }
 
 export function normalizeLinkUrl(url: string) {
@@ -218,8 +237,7 @@ export function formatHotkeyEvent(event: React.KeyboardEvent<HTMLInputElement>) 
   if (event.altKey) parts.push("Alt");
   if (event.shiftKey) parts.push("Shift");
 
-  const normalizedKey =
-    key.length === 1 ? key.toUpperCase() : key === " " ? "Space" : key.replace("Arrow", "");
+  const normalizedKey = key.length === 1 ? key.toUpperCase() : key === " " ? "Space" : key.replace("Arrow", "");
   if (!parts.length || !normalizedKey) return "";
   parts.push(normalizedKey);
   return Array.from(new Set(parts)).join("+");

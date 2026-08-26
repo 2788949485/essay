@@ -28,7 +28,7 @@ describe("note transfer helpers", () => {
         "",
         "---",
         "",
-        "![封面](https://example.com/a.png \"图\")",
+        '![封面](https://example.com/a.png "图")',
         "",
         "| 列1 | 列2 |",
         "| --- | --- |",
