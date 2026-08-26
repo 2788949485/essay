@@ -81,6 +81,17 @@
     padding-right: 2px;
   }
 
+  /* 小窗口高度有限：内容不再被 flex 压缩到不可见，改为自然高度并随侧栏整体滚动 */
+  .sidebar-body > * {
+    flex-shrink: 0;
+  }
+
+  .note-list,
+  .document-outline-list,
+  .recent-timeline {
+    flex: none;
+  }
+
   .sidebar-summary-card {
     display: none;
   }
