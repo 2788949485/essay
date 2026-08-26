@@ -273,6 +273,7 @@ export type OpenTask = {
   noteTitle: string;
   text: string;
   updatedAt: string;
+  taskIndex: number;
 };
 
 function nodePlainText(node: JSONContent): string {
@@ -284,6 +285,7 @@ export function collectOpenTasks(notes: NoteRecord[]): OpenTask[] {
   const tasks: OpenTask[] = [];
   for (const note of notes) {
     if (note.trashedAt) continue;
+    let taskIndex = 0;
     const walk = (node: JSONContent | undefined) => {
       if (!node) return;
       if (node.type === "taskItem" && !node.attrs?.checked) {
@@ -291,7 +293,8 @@ export function collectOpenTasks(notes: NoteRecord[]): OpenTask[] {
           noteId: note.id,
           noteTitle: note.title || "未命名记录",
           text: nodePlainText(node).trim(),
-          updatedAt: note.updatedAt
+          updatedAt: note.updatedAt,
+          taskIndex: taskIndex++
         });
       }
       node.content?.forEach(walk);
@@ -299,4 +302,20 @@ export function collectOpenTasks(notes: NoteRecord[]): OpenTask[] {
     walk(note.content);
   }
   return tasks;
+}
+
+/** 把文档里第 index 个未勾选 taskItem 标记为已完成（不可变更新，返回新树） */
+export function toggleTaskAtIndex(content: JSONContent, index: number): JSONContent {
+  let seen = -1;
+  const walk = (node: JSONContent): JSONContent => {
+    if (node.type === "taskItem" && !node.attrs?.checked) {
+      seen += 1;
+      if (seen === index) {
+        return { ...node, attrs: { ...node.attrs, checked: true } };
+      }
+    }
+    if (!node.content?.length) return node;
+    return { ...node, content: node.content.map(walk) };
+  };
+  return walk(content);
 }

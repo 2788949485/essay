@@ -661,3 +661,71 @@
   color: #7b8a84;
   font-style: italic;
 }
+
+/* ---------- 代码块工具头（语言选择 + 复制） ---------- */
+
+.editor-surface .code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 18px 18px 0 0;
+  background: var(--pre-bg);
+  padding: 6px 10px 6px 14px;
+}
+
+.editor-surface .code-block-header + pre {
+  border-radius: 0 0 18px 18px;
+}
+
+.editor-surface .code-block-language {
+  border: none;
+  background: transparent;
+  color: var(--pre-text);
+  font-size: 12px;
+  opacity: 0.75;
+  outline: none;
+  cursor: pointer;
+}
+
+.editor-surface .code-block-language option {
+  color: var(--text-color);
+}
+
+.editor-surface .code-block-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--pre-text);
+  font-size: 12px;
+  opacity: 0.75;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.editor-surface .code-block-copy:hover {
+  background: rgba(255, 255, 255, 0.1);
+  opacity: 1;
+}
+
+/* ---------- 表格列宽拖拽 ---------- */
+
+.editor-surface .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: -2px;
+  width: 3px;
+  background: var(--accent-color);
+  pointer-events: none;
+}
+
+.editor-surface .selectedCell::after {
+  position: absolute;
+  inset: 0;
+  background: var(--accent-soft);
+  content: "";
+  pointer-events: none;
+}

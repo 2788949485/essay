@@ -716,3 +716,21 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---------- 待办汇总勾选框 ---------- */
+
+.task-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--subtle-text);
+  padding: 1px;
+  cursor: pointer;
+}
+
+.task-toggle:hover {
+  color: var(--accent-color);
+}

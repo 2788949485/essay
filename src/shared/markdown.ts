@@ -173,8 +173,10 @@ function renderBlock(node: JSONContent, depth = 0): string {
       return renderCollapsibleBlock(node, depth);
     case "mathBlock":
       return `$$${String(node.attrs?.latex ?? "")}$$`;
-    case "codeBlock":
-      return `\`\`\`\n${node.content?.map((child) => child.text ?? "").join("") ?? ""}\n\`\`\``;
+    case "codeBlock": {
+      const language = String(node.attrs?.language ?? "").trim();
+      return `\`\`\`${language}\n${node.content?.map((child) => child.text ?? "").join("") ?? ""}\n\`\`\``;
+    }
     case "horizontalRule":
       return "---";
     default:

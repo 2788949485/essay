@@ -17,6 +17,7 @@ import {
   Settings as SettingsIcon,
   Star,
   StarOff,
+  Square,
   Trash2,
   X
 } from "lucide-react";
@@ -55,6 +56,7 @@ type SidebarProps = {
   onRenameTag: (tag: string) => void;
   openTasks: OpenTask[];
   onOpenTaskNote: (id: string) => void;
+  onToggleTask: (task: OpenTask) => void;
   filteredNotes: NoteRecord[];
   activeId: string;
   searchKeyword: string;
@@ -107,6 +109,7 @@ export function Sidebar(props: SidebarProps) {
     onRenameTag,
     openTasks,
     onOpenTaskNote,
+    onToggleTask,
     filteredNotes,
     activeId,
     searchKeyword,
@@ -381,6 +384,18 @@ export function Sidebar(props: SidebarProps) {
                     >
                       <div className="note-item-header">
                         <span className="note-title">
+                          <button
+                            type="button"
+                            className="task-toggle"
+                            aria-label={`完成待办：${task.text || "未命名待办"}`}
+                            title="标记完成"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onToggleTask(task);
+                            }}
+                          >
+                            <Square size={15} />
+                          </button>
                           <span className="note-title-text">{task.text || "未命名待办"}</span>
                         </span>
                       </div>

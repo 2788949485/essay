@@ -17,7 +17,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import Highlight from "@tiptap/extension-highlight";
 import TextAlign from "@tiptap/extension-text-align";
 import Typography from "@tiptap/extension-typography";
-import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
+import { CodeBlockExtension } from "./editor/code-block";
 import { common, createLowlight } from "lowlight";
 import { SafeAutolink } from "./safe-link";
 import { MathExtensions } from "./math-extension";
@@ -53,7 +53,9 @@ import {
   parseTagsInput,
   settingsPayload,
   sortNotes,
-  splitPastedMath
+  splitPastedMath,
+  toggleTaskAtIndex,
+  type OpenTask
 } from "./utils/text";
 import { BlockFormatExtension, getCurrentBlockFormat } from "./editor/block-format";
 import { CollapsibleBlockExtension } from "./editor/collapsible-block";
@@ -163,7 +165,7 @@ export default function App() {
         // 代码块交给 CodeBlockLowlight 以获得语法高亮
         codeBlock: false
       }),
-      CodeBlockLowlight.configure({ lowlight }),
+      CodeBlockExtension.configure({ lowlight, defaultLanguage: null }),
       BlockFormatExtension,
       FindHighlightExtension,
       CollapsibleBlockExtension,
@@ -179,7 +181,7 @@ export default function App() {
         allowBase64: true
       }),
       Table.configure({
-        resizable: false
+        resizable: true
       }),
       TableRow,
       TableHeader,
@@ -1202,6 +1204,20 @@ export default function App() {
     void handleSelectNote(id);
   }
 
+  // 待办汇总视图里直接勾掉任务：改 JSON 后走正常保存通道，当前打开的笔记同步编辑器
+  async function handleToggleTask(task: OpenTask) {
+    const note = notesRef.current.find((item) => item.id === task.noteId);
+    if (!note) return;
+    const content = toggleTaskAtIndex(note.content, task.taskIndex);
+    const saved = await window.suiji.saveNote({ ...note, content, plainText: getContentPlainText(content) });
+    setNotes((current) => current.map((item) => (item.id === saved.id ? saved : item)));
+    if (activeIdRef.current === saved.id && editor) {
+      editor.commands.setContent(saved.content, false);
+      setEditorText(getContentPlainText(saved.content));
+      setOutlineItems(extractOutline(editor));
+    }
+  }
+
   const paletteItems = useMemo<CommandPaletteItem[]>(() => {
     const commands: CommandPaletteItem[] = [
       { id: "new", kind: "command", label: "新建记录", run: () => void handleCreate() },
@@ -1804,6 +1820,7 @@ export default function App() {
         onRenameTag={(tag) => setTagRename({ from: tag, draft: tag })}
         openTasks={openTasks}
         onOpenTaskNote={handleOpenTaskNote}
+        onToggleTask={(task) => void handleToggleTask(task)}
         filteredNotes={filteredNotes}
         activeId={activeId}
         searchKeyword={searchKeyword}

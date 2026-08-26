@@ -233,9 +233,14 @@ function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes
             className="collapsible-block-insert"
             contentEditable={false}
             onMouseDown={(event) => event.stopPropagation()}
-            onClick={insertChildCollapsibleBlock}
+            onClick={() => {
+              const pos = typeof getPos === "function" ? getPos() : null;
+              if (typeof pos !== "number") return;
+              const childPos = pos + node.nodeSize - 1;
+              editor.chain().focus().insertContentAt(childPos, { type: "paragraph" }).run();
+            }}
           >
-            空折叠块
+            点击添加内容
           </button>
         ) : null}
       </div>
@@ -246,7 +251,8 @@ function CollapsibleBlockView({ editor, getPos, node, selected, updateAttributes
 export const CollapsibleBlockExtension = TiptapNode.create({
   name: "collapsibleBlock",
   group: "block",
-  content: "collapsibleBlock*",
+  // 允许装普通正文（段落/列表/图片等），折叠块的核心用途就是把内容收起来
+  content: "block+",
   draggable: true,
   selectable: true,
   defining: true,

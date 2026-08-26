@@ -384,6 +384,7 @@ function parseBlocks(
       case "code_block":
         nodes.push({
           type: "codeBlock",
+          attrs: { language: token.info.trim().split(/\s+/)[0] || null },
           content: token.content ? [{ type: "text", text: token.content.replace(/\n$/, "") }] : undefined
         });
         index += 1;

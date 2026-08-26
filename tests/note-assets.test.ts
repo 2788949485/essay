@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { assetFileNameFromUrl, collectAssetFileNames } from "../src/shared/note-assets";
-import { collectOpenTasks } from "../src/renderer/utils/text";
+import { collectOpenTasks, toggleTaskAtIndex } from "../src/renderer/utils/text";
 import { matchNoteLinkTrigger } from "../src/renderer/editor/note-link-suggestion";
 import type { NoteRecord } from "../src/shared/types";
 
@@ -110,6 +110,44 @@ describe("collectOpenTasks", () => {
     expect(tasks).toHaveLength(1);
     expect(tasks[0].text).toBe("买牛奶");
     expect(tasks[0].noteId).toBe("n1");
+    expect(tasks[0].taskIndex).toBe(0);
+  });
+});
+
+describe("toggleTaskAtIndex", () => {
+  it("把第 N 个未勾选任务标记为完成，不动其它节点", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "taskList",
+          content: [
+            {
+              type: "taskItem",
+              attrs: { checked: false },
+              content: [{ type: "paragraph", content: [{ type: "text", text: "任务一" }] }]
+            },
+            {
+              type: "taskItem",
+              attrs: { checked: true },
+              content: [{ type: "paragraph", content: [{ type: "text", text: "已完成" }] }]
+            },
+            {
+              type: "taskItem",
+              attrs: { checked: false },
+              content: [{ type: "paragraph", content: [{ type: "text", text: "任务二" }] }]
+            }
+          ]
+        }
+      ]
+    };
+    const next = toggleTaskAtIndex(doc as never, 1) as typeof doc;
+    const items = next.content[0].content!;
+    expect(items[0].attrs?.checked).toBe(false);
+    expect(items[1].attrs?.checked).toBe(true);
+    expect(items[2].attrs?.checked).toBe(true);
+    // 原树不被修改
+    expect(doc.content[0].content![2].attrs?.checked).toBe(false);
   });
 });
 
