@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 import { Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { CollapsibleBlockExtensions } from "../src/renderer/editor/collapsible-block";
+import { EditorPlaceholder } from "../src/renderer/editor/placeholder";
 import type { JSONContent } from "@tiptap/react";
 
 function createEditor(content: JSONContent) {
-  return new Editor({ extensions: [StarterKit, ...CollapsibleBlockExtensions], content });
+  return new Editor({ extensions: [StarterKit, ...CollapsibleBlockExtensions, EditorPlaceholder], content });
 }
 
 function pressKey(editor: Editor, key: string, options: KeyboardEventInit = {}) {
@@ -141,6 +142,16 @@ describe("折叠块大纲式键盘交互", () => {
     expect(content[1].type).toBe("paragraph");
     expect(editor.state.selection.$from.parent.type.name).toBe("paragraph");
     editor.destroy();
+  });
+
+  it("插入空折叠块后「开始记录」占位符不再叠在块上", () => {
+    const empty = createEditor({ type: "doc", content: [{ type: "paragraph" }] });
+    expect(empty.view.dom.firstElementChild?.getAttribute("data-placeholder")).toBe("开始记录...");
+    empty.destroy();
+
+    const withBlock = createEditor({ type: "doc", content: [block("", false)] });
+    expect(withBlock.view.dom.firstElementChild?.getAttribute("data-placeholder") ?? "").toBe("");
+    withBlock.destroy();
   });
 
   it("标题内 Shift+Enter 插入换行", () => {

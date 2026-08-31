@@ -6,7 +6,7 @@ import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
-import Placeholder from "@tiptap/extension-placeholder";
+import { EditorPlaceholder } from "./editor/placeholder";
 import Table from "@tiptap/extension-table";
 import TableCell from "@tiptap/extension-table-cell";
 import TableHeader from "@tiptap/extension-table-header";
@@ -188,9 +188,7 @@ export default function App() {
       TextAlign.configure({
         types: ["heading", "paragraph"]
       }),
-      Placeholder.configure({
-        placeholder: "开始记录..."
-      }),
+      EditorPlaceholder,
       TaskList,
       TaskItem.configure({
         nested: true
