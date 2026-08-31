@@ -892,3 +892,61 @@
 .editor-surface .image-block:hover .image-resize-handle {
   opacity: 1;
 }
+
+/* ---------- 反向链接面板 ---------- */
+
+.editor-column .backlinks-panel {
+  margin: 24px 0 32px;
+  border-top: 1px solid var(--panel-border);
+  padding-top: 14px;
+}
+
+.editor-column .backlinks-title {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.editor-column .backlinks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.editor-column .backlinks-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-color);
+  padding: 6px 8px;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.editor-column .backlinks-item:hover {
+  background: var(--surface-hover);
+}
+
+.editor-column .backlinks-item svg {
+  color: var(--accent-color);
+  flex: 0 0 auto;
+}
+
+.editor-column .backlinks-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-column .backlinks-item em {
+  margin-left: auto;
+  color: var(--subtle-text);
+  font-size: 11px;
+  font-style: normal;
+}

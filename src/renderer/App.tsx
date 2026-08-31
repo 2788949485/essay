@@ -66,6 +66,7 @@ import { NoteLinkSuggestionExtension } from "./editor/note-link-suggestion";
 import { SlashMenuExtension } from "./editor/slash-menu";
 import { Sidebar } from "./components/Sidebar";
 import { TitleBar } from "./components/TitleBar";
+import { BacklinksPanel } from "./components/BacklinksPanel";
 import { TopBar } from "./components/TopBar";
 import { FindPanel } from "./components/FindPanel";
 import { FormatPanel } from "./components/FormatPanel";
@@ -1332,6 +1333,26 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notes, settings?.theme]);
 
+  const backlinks = useMemo(() => {
+    if (!activeNote) return [];
+    const target = `suiji-note://${activeNote.id}`;
+    const titleKey = (activeNote.title || "").trim();
+    const items: Array<{ id: string; title: string; kind: "linked" | "unlinked" }> = [];
+    for (const note of notes) {
+      if (note.trashedAt || note.id === activeNote.id) continue;
+      let linked = false;
+      const walk = (node: JSONContent) => {
+        if ((node.marks ?? []).some((mark) => mark.type === "link" && mark.attrs?.href === target)) linked = true;
+        (node.content ?? []).forEach(walk);
+      };
+      (note.content?.content ?? []).forEach(walk);
+      const unlinked = !linked && titleKey.length > 0 && (note.plainText || "").includes(titleKey);
+      if (linked) items.push({ id: note.id, title: note.title || "未命名记录", kind: "linked" });
+      else if (unlinked) items.push({ id: note.id, title: note.title || "未命名记录", kind: "unlinked" });
+    }
+    return items;
+  }, [notes, activeNote]);
+
   async function handleExport(format: ExportFormat) {
     await saveActive({ skipClean: true });
     if (!activeNote || !editor) return;
@@ -1990,6 +2011,7 @@ export default function App() {
               onFocus={() => editor?.commands.focus()}
               onImageChosen={(file) => void handleInsertImage(file)}
             />
+            <BacklinksPanel items={backlinks} onJump={(id) => void handleSelectNote(id)} />
           </div>
 
           <FormatPanel
