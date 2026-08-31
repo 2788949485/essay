@@ -3,6 +3,7 @@
    ============================================================ */
 
 .app-shell {
+  --topbar-h: 48px;
   display: grid;
   grid-template-columns: 304px minmax(0, 1fr);
   grid-template-rows: 40px minmax(0, 1fr);
@@ -139,7 +140,8 @@
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
   border-radius: 14px;
-  margin: 10px 8px 10px 10px;
+  /* 顶部下移一个顶栏高度，与右侧编辑区/格式面板顶对齐 */
+  margin: calc(var(--topbar-h) + 10px) 8px 10px 10px;
   padding: 18px 14px 14px;
 }
 
@@ -148,7 +150,7 @@
   display: grid;
   height: 100%;
   overflow: hidden;
-  grid-template-rows: 48px minmax(0, 1fr);
+  grid-template-rows: var(--topbar-h) minmax(0, 1fr);
   background: var(--app-bg);
 }
 
