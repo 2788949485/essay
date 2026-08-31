@@ -50,6 +50,8 @@ const api = {
   openDataFolder: () => ipcRenderer.invoke("app:open-data-folder") as Promise<string | null>,
   changeDataFolder: () => ipcRenderer.invoke("app:change-data-folder") as Promise<string | null>,
   hideWindow: () => ipcRenderer.invoke("window:hide") as Promise<void>,
+  quit: () => ipcRenderer.invoke("app:quit") as Promise<void>,
+  about: () => ipcRenderer.invoke("app:about") as Promise<void>,
   onNewNote: (callback: () => void) => {
     const listener = () => callback();
     ipcRenderer.on("menu:new-note", listener);

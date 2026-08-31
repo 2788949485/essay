@@ -1128,6 +1128,7 @@ async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<App
     openAsHidden: next.startHidden
   });
   mainWindow?.setAlwaysOnTop(next.alwaysOnTop);
+  applyTitleBarOverlay(next.theme);
   refreshIdleLockMonitor();
   return publicSettings(next, activePrivacyPin);
 }
@@ -1855,6 +1856,19 @@ function setupWebContentsGuards(window: BrowserWindow) {
   window.webContents.session.setPermissionCheckHandler(() => false);
 }
 
+let currentTheme: "light" | "dark" = "light";
+
+function titleBarOverlayOptions(theme: "light" | "dark") {
+  return theme === "dark"
+    ? { color: "#1c1917", symbolColor: "#e7e5e4", height: 40 }
+    : { color: "#f7f3ec", symbolColor: "#1c1917", height: 40 };
+}
+
+function applyTitleBarOverlay(theme: "light" | "dark") {
+  currentTheme = theme;
+  mainWindow?.setTitleBarOverlay(titleBarOverlayOptions(theme));
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1080,
@@ -1864,7 +1878,9 @@ function createWindow() {
     show: false,
     title: "随记",
     icon: assetPath("icon.ico"),
-    backgroundColor: "#f7f5ef",
+    backgroundColor: "#f7f3ec",
+    titleBarStyle: "hidden",
+    titleBarOverlay: titleBarOverlayOptions(currentTheme),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -1945,28 +1961,32 @@ function refreshIdleLockMonitor() {
   });
 }
 
+function showAboutDialog() {
+  const options = {
+    type: "info",
+    title: "关于随记",
+    message: "随记",
+    detail: `版本：${app.getVersion()}\n版权：Copyright (c) 2026 Suiji. All rights reserved.\n\n随记是快捷呼出的本地自动保存富文本记录工具。可选启用本地加密来保护数据库、历史版本和整库备份；单篇与批量导出可按需选择明文或加密。`
+  } as const;
+  if (mainWindow) {
+    void dialog.showMessageBox(mainWindow, options);
+  } else {
+    void dialog.showMessageBox(options);
+  }
+}
+
+function quitApp() {
+  isQuitting = true;
+  app.quit();
+}
+
 function createApplicationMenu() {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate(
       buildApplicationMenuTemplate({
-        appQuit: () => {
-          isQuitting = true;
-          app.quit();
-        },
+        appQuit: quitApp,
         hideWindow,
-        onAbout: () => {
-          const options = {
-            type: "info",
-            title: "关于随记",
-            message: "随记",
-            detail: `版本：${app.getVersion()}\n版权：Copyright (c) 2026 Suiji. All rights reserved.\n\n随记是快捷呼出的本地自动保存富文本记录工具。可选启用本地加密来保护数据库、历史版本和整库备份；单篇与批量导出可按需选择明文或加密。`
-          } as const;
-          if (mainWindow) {
-            void dialog.showMessageBox(mainWindow, options);
-          } else {
-            void dialog.showMessageBox(options);
-          }
-        },
+        onAbout: showAboutDialog,
         onClipboardNote: createClipboardNote,
         sendMenu: (channel, payload) => mainWindow?.webContents.send(channel, payload),
         showWindow
@@ -2226,6 +2246,12 @@ function registerIpc() {
   ipcMain.handle("window:hide", () => {
     hideWindow();
   });
+  ipcMain.handle("app:quit", () => {
+    quitApp();
+  });
+  ipcMain.handle("app:about", () => {
+    showAboutDialog();
+  });
   ipcMain.handle("notes:save-asset", async (_event, payload: unknown) => {
     const body = payload as { base64?: unknown; ext?: unknown };
     const base64 = typeof body.base64 === "string" ? body.base64 : "";
@@ -2265,6 +2291,7 @@ if (gotTheLock) {
     createApplicationMenu();
     createWindow();
     mainWindow?.setAlwaysOnTop(settings.alwaysOnTop);
+    applyTitleBarOverlay(settings.theme);
     createTray(settings);
     registerHotkey(settings.hotkey);
     refreshIdleLockMonitor();

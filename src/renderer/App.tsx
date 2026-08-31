@@ -63,6 +63,7 @@ import { findInteractiveEditorBlock } from "./editor/interactive-blocks";
 import { NoteLinkSuggestionExtension } from "./editor/note-link-suggestion";
 import { SlashMenuExtension } from "./editor/slash-menu";
 import { Sidebar } from "./components/Sidebar";
+import { TitleBar } from "./components/TitleBar";
 import { TopBar } from "./components/TopBar";
 import { FindPanel } from "./components/FindPanel";
 import { FormatPanel } from "./components/FormatPanel";
@@ -1785,6 +1786,17 @@ export default function App() {
 
   return (
     <main className={appClassName} style={appStyle}>
+      <TitleBar
+        onCreateNote={() => void handleCreate()}
+        onSave={() => void saveActive()}
+        onOpenHistory={() => void handleOpenHistory()}
+        onExportNote={(format) => void handleExport(format)}
+        onBatchExport={(format) => void handleBatchExport(format)}
+        onOpenSettings={openSettings}
+        onHideWindow={() => void window.suiji.hideWindow()}
+        onAbout={() => void window.suiji.about()}
+        onQuit={() => void window.suiji.quit()}
+      />
       <Sidebar
         sidebarCollapsed={sidebarCollapsed}
         onExpandSidebar={() => setSidebarCollapsed(false)}

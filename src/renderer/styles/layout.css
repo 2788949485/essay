@@ -5,6 +5,7 @@
 .app-shell {
   display: grid;
   grid-template-columns: 304px minmax(0, 1fr);
+  grid-template-rows: 40px minmax(0, 1fr);
   gap: 0;
   width: 100vw;
   height: 100vh;
@@ -14,6 +15,102 @@
   color: var(--text-color);
   padding: 0;
   transition: grid-template-columns 180ms ease;
+}
+
+/* ---------- 自定义标题栏（与主题同色，右侧留给系统窗口控件覆层） ---------- */
+
+.titlebar {
+  position: relative;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  height: 40px;
+  background: var(--app-bg);
+  color: var(--text-color);
+  padding-right: 140px;
+  -webkit-app-region: drag;
+}
+
+.titlebar-leading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted-text);
+  font-size: 13px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.titlebar-logo {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, var(--accent-color) 0%, #b45309 100%);
+}
+
+.titlebar-menu {
+  position: absolute;
+  top: 38px;
+  left: 8px;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  max-height: 480px;
+  overflow-y: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-floating);
+  padding: 6px;
+  -webkit-app-region: no-drag;
+}
+
+.titlebar-menu button {
+  display: flex;
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-color);
+  padding: 7px 12px;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.titlebar-menu button:hover {
+  background: var(--surface-hover);
+}
+
+.titlebar-submenu button {
+  padding-left: 24px;
+  color: var(--muted-text);
+}
+
+.titlebar-menu-divider {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--panel-border);
+}
+
+.titlebar ~ .sidebar {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.titlebar ~ .workspace {
+  grid-column: 2;
+  grid-row: 2;
 }
 
 .app-shell.theme-dark {
