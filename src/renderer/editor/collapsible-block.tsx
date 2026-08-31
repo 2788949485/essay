@@ -359,6 +359,47 @@ export const CollapsibleBlockExtension = TiptapNode.create({
           .setTextSelection(after + 1)
           .run();
         return true;
+      },
+      // Tab：挂到前一兄弟折叠块之下（子树跟随），并展开它
+      Tab: () => {
+        const context = findTitleContext(this.editor.state);
+        if (!context) return false;
+        const { state, view } = this.editor;
+        const { block, blockPos } = context;
+        const $pos = state.doc.resolve(blockPos);
+        if ($pos.index() === 0) return false;
+        const prev = $pos.parent.child($pos.index() - 1);
+        if (prev.type.name !== "collapsibleBlock") return false;
+
+        const prevPos = blockPos - prev.nodeSize;
+        const insertAt = prevPos + prev.nodeSize - 2; // 前一兄弟内容区末尾
+        const tr = state.tr.delete(blockPos, blockPos + block.nodeSize);
+        tr.insert(insertAt, block);
+        if (prev.attrs.open === false) {
+          tr.setNodeMarkup(prevPos, undefined, { ...prev.attrs, open: true });
+        }
+        tr.setSelection(TextSelection.create(tr.doc, insertAt + 2));
+        view.dispatch(tr.scrollIntoView());
+        return true;
+      },
+      // Shift-Tab：从父块内容区上提一级，放到父块之后
+      "Shift-Tab": () => {
+        const context = findTitleContext(this.editor.state);
+        if (!context) return false;
+        const { state, view } = this.editor;
+        const { block, blockPos } = context;
+        const $pos = state.doc.resolve(blockPos);
+        if ($pos.parent.type.name !== "collapsibleBody") return false;
+        const parentBlock = $pos.node($pos.depth - 1);
+        const parentPos = $pos.before($pos.depth - 1);
+
+        const insertAt = parentPos + parentBlock.nodeSize;
+        const tr = state.tr.delete(blockPos, blockPos + block.nodeSize);
+        const mappedInsert = tr.mapping.map(insertAt);
+        tr.insert(mappedInsert, block);
+        tr.setSelection(TextSelection.create(tr.doc, mappedInsert + 2));
+        view.dispatch(tr.scrollIntoView());
+        return true;
       }
     };
   },

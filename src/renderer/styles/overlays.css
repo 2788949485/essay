@@ -801,6 +801,56 @@ input[type="range"] {
   cursor: pointer;
 }
 
-.note-link-suggestion-item.is-active {
+.note-link-suggestion-item.is-active,
+.note-link-suggestion-item:hover {
+  background: var(--surface-hover);
+}
+
+.slash-menu {
+  position: fixed;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  min-width: 240px;
+  max-width: 320px;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--layer-surface-top) 0%, var(--layer-surface-bottom) 100%);
+  box-shadow: var(--shadow-floating);
+  padding: 4px;
+}
+
+.slash-menu-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  padding: 8px 12px;
+  color: var(--text-color);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.slash-menu-item strong {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.slash-menu-item span {
+  overflow: hidden;
+  color: var(--muted-text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slash-menu-item.is-active,
+.slash-menu-item:hover {
   background: var(--surface-hover);
 }

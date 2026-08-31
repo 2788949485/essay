@@ -41,6 +41,8 @@ type SidebarProps = {
   onCreateNote: () => void;
   onHideWindow: () => void;
   onOpenSettings: () => void;
+  alwaysOnTop: boolean;
+  onToggleAlwaysOnTop: () => void;
   query: string;
   onQueryChange: (value: string) => void;
   viewMode: ViewMode;
@@ -94,6 +96,8 @@ export function Sidebar(props: SidebarProps) {
     onCreateNote,
     onHideWindow,
     onOpenSettings,
+    alwaysOnTop,
+    onToggleAlwaysOnTop,
     query,
     onQueryChange,
     viewMode,
@@ -165,6 +169,15 @@ export function Sidebar(props: SidebarProps) {
           <button className="icon-button" title="设置" aria-label="设置" onClick={onOpenSettings} type="button">
             <SettingsIcon size={18} />
           </button>
+                    <button
+            className={alwaysOnTop ? "icon-button is-active" : "icon-button"}
+            title={alwaysOnTop ? "取消窗口置顶" : "窗口置顶"}
+            aria-label={alwaysOnTop ? "取消窗口置顶" : "窗口置顶"}
+            onClick={onToggleAlwaysOnTop}
+            type="button"
+          >
+            <Pin size={18} />
+          </button>
           <button className="icon-button" title="隐藏窗口" aria-label="隐藏窗口" onClick={onHideWindow} type="button">
             <EyeOff size={18} />
           </button>
@@ -192,6 +205,15 @@ export function Sidebar(props: SidebarProps) {
             type="button"
           >
             <PanelLeftClose size={18} />
+          </button>
+                    <button
+            className={alwaysOnTop ? "icon-button is-active" : "icon-button"}
+            title={alwaysOnTop ? "取消窗口置顶" : "窗口置顶"}
+            aria-label={alwaysOnTop ? "取消窗口置顶" : "窗口置顶"}
+            onClick={onToggleAlwaysOnTop}
+            type="button"
+          >
+            <Pin size={18} />
           </button>
           <button className="icon-button" title="隐藏窗口" aria-label="隐藏窗口" onClick={onHideWindow} type="button">
             <EyeOff size={18} />

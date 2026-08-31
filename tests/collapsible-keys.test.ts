@@ -154,6 +154,44 @@ describe("折叠块大纲式键盘交互", () => {
     withBlock.destroy();
   });
 
+  it("Tab 挂到前一兄弟折叠块之下", () => {
+    const editor = createEditor({ type: "doc", content: [block("甲", false), block("乙", false)] });
+    editor.commands.setTextSelection(9);
+    expect(pressKey(editor, "Tab")).toBe(true);
+
+    const content = editor.getJSON().content!;
+    expect(content).toHaveLength(1);
+    const outer = content[0];
+    expect(outer.attrs).toMatchObject({ open: true });
+    expect(outer.content![1].content![0].content![0]).toMatchObject({
+      content: [{ type: "text", text: "乙" }]
+    });
+    expect(editor.state.selection.$from.parent.type.name).toBe("collapsibleTitle");
+    editor.destroy();
+  });
+
+  it("首个折叠块 Tab 不生效", () => {
+    const editor = createEditor({ type: "doc", content: [block("甲", false)] });
+    editor.commands.setTextSelection(2);
+    expect(pressKey(editor, "Tab")).toBeUndefined();
+    expect(editor.getJSON().content).toHaveLength(1);
+    editor.destroy();
+  });
+
+  it("Shift-Tab 从父块上提一级", () => {
+    const editor = createEditor({
+      type: "doc",
+      content: [block("甲", true, [block("乙", false)])]
+    });
+    editor.commands.setTextSelection(7);
+    expect(pressKey(editor, "Tab", { shiftKey: true })).toBe(true);
+
+    const content = editor.getJSON().content!;
+    expect(content).toHaveLength(2);
+    expect(content[1].content![0]).toMatchObject({ content: [{ type: "text", text: "乙" }] });
+    editor.destroy();
+  });
+
   it("标题内 Shift+Enter 插入换行", () => {
     const editor = createEditor({ type: "doc", content: [block("甲", false)] });
     editor.commands.setTextSelection(3);

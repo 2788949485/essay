@@ -480,6 +480,7 @@ function sanitizeSettingsPayload(raw: unknown): SettingsUpdatePayload {
     ),
     encryptLocalData: Boolean(payload.encryptLocalData),
     launchAtLogin: Boolean(payload.launchAtLogin),
+    alwaysOnTop: Boolean(payload.alwaysOnTop),
     theme: payload.theme === "dark" ? "dark" : "light",
     fontFamily: coerceString(payload.fontFamily, "", 120),
     fontSize: Math.min(Math.max(Number(payload.fontSize) || 16, 13), 24),
@@ -1077,6 +1078,7 @@ async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<App
     backupHistoryLimit: payload.backupHistoryLimit,
     storageEncrypted: Boolean(payload.encryptLocalData),
     launchAtLogin: Boolean(payload.launchAtLogin),
+    alwaysOnTop: Boolean(payload.alwaysOnTop),
     theme: payload.theme === "dark" ? "dark" : "light",
     fontFamily: payload.fontFamily,
     fontSize: payload.fontSize,
@@ -1125,6 +1127,7 @@ async function updateStoredSettings(payload: SettingsUpdatePayload): Promise<App
     openAtLogin: next.launchAtLogin,
     openAsHidden: next.startHidden
   });
+  mainWindow?.setAlwaysOnTop(next.alwaysOnTop);
   refreshIdleLockMonitor();
   return publicSettings(next, activePrivacyPin);
 }
@@ -2261,6 +2264,7 @@ if (gotTheLock) {
     registerIpc();
     createApplicationMenu();
     createWindow();
+    mainWindow?.setAlwaysOnTop(settings.alwaysOnTop);
     createTray(settings);
     registerHotkey(settings.hotkey);
     refreshIdleLockMonitor();

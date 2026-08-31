@@ -31,6 +31,7 @@ export type AppSettings = {
   storageEncrypted: boolean;
   storageUnlocked: boolean;
   launchAtLogin: boolean;
+  alwaysOnTop: boolean;
   theme: "light" | "dark";
   fontFamily: string;
   fontSize: number;
@@ -48,6 +49,7 @@ export type SettingsUpdatePayload = {
   backupHistoryLimit: number;
   encryptLocalData: boolean;
   launchAtLogin: boolean;
+  alwaysOnTop: boolean;
   theme: "light" | "dark";
   fontFamily: string;
   fontSize: number;

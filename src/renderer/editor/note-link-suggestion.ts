@@ -41,6 +41,8 @@ type NoteLinkSuggestionOptions = {
  */
 export const NoteLinkSuggestionExtension = Extension.create<NoteLinkSuggestionOptions>({
   name: "noteLinkSuggestion",
+  // 高于折叠块等键盘扩展：建议菜单打开时 Enter/方向键先选条目
+  priority: 1100,
 
   addOptions() {
     return {

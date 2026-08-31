@@ -246,6 +246,7 @@ export function settingsPayload(settings: AppSettings, hotkey: string) {
     backupHistoryLimit: settings.backupHistoryLimit,
     encryptLocalData: settings.storageEncrypted,
     launchAtLogin: settings.launchAtLogin,
+    alwaysOnTop: settings.alwaysOnTop,
     theme: settings.theme,
     fontFamily: settings.fontFamily,
     fontSize: settings.fontSize,

@@ -61,6 +61,7 @@ import { CollapsibleBlockExtensions } from "./editor/collapsible-block";
 import { FindHighlightExtension, clearFindHighlights, setFindHighlights } from "./editor/find-highlight";
 import { findInteractiveEditorBlock } from "./editor/interactive-blocks";
 import { NoteLinkSuggestionExtension } from "./editor/note-link-suggestion";
+import { SlashMenuExtension } from "./editor/slash-menu";
 import { Sidebar } from "./components/Sidebar";
 import { TopBar } from "./components/TopBar";
 import { FindPanel } from "./components/FindPanel";
@@ -146,6 +147,7 @@ export default function App() {
   const [, setEditorUiTick] = useState(0);
   const activeIdRef = useRef("");
   const notesRef = useRef<NoteRecord[]>([]);
+  const slashCommandsRef = useRef<BlockMenuCommand[]>([]);
   const revisionRef = useRef(0);
   const saveStateRef = useRef<SaveState>("idle");
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -197,6 +199,9 @@ export default function App() {
       Typography,
       NoteLinkSuggestionExtension.configure({
         getNotes: () => notesRef.current.filter((note) => !note.trashedAt)
+      }),
+      SlashMenuExtension.configure({
+        getCommands: () => slashCommandsRef.current
       })
     ],
     content: activeNote?.content,
@@ -1190,6 +1195,14 @@ export default function App() {
     setSettings(next);
   }
 
+  async function toggleAlwaysOnTop() {
+    const base = settings ?? DEFAULT_APP_SETTINGS;
+    const next = await window.suiji.updateSettings(
+      settingsPayload({ ...base, alwaysOnTop: !base.alwaysOnTop }, base.hotkey)
+    );
+    setSettings(next);
+  }
+
   function handleOpenTaskNote(id: string) {
     setViewMode("active");
     void handleSelectNote(id);
@@ -1733,6 +1746,7 @@ export default function App() {
       run: () => imageInputRef.current?.click()
     }
   ];
+  slashCommandsRef.current = blockMenuCommands;
 
   function applyBlockMenuCommand(command: BlockMenuCommand) {
     setBlockMenuOpen(false);
@@ -1786,6 +1800,8 @@ export default function App() {
         onCreateNote={() => void handleCreate()}
         onHideWindow={() => void window.suiji.hideWindow()}
         onOpenSettings={openSettings}
+        alwaysOnTop={settings?.alwaysOnTop ?? false}
+        onToggleAlwaysOnTop={() => void toggleAlwaysOnTop()}
         query={query}
         onQueryChange={setQuery}
         viewMode={viewMode}

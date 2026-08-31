@@ -64,6 +64,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   storageEncrypted: false,
   storageUnlocked: true,
   launchAtLogin: false,
+  alwaysOnTop: false,
   theme: "light",
   fontFamily: "",
   fontSize: 16,
