@@ -133,6 +133,8 @@ function renderBlockHtml(node: JsonNode): string {
       return renderTaskItemHtml(node);
     case "blockquote":
       return `<blockquote>${children.map(renderBlockHtml).join("")}</blockquote>`;
+    case "callout":
+      return `<blockquote data-callout="${String(node.attrs?.calloutType ?? "info")}">${children.map(renderBlockHtml).join("")}</blockquote>`;
     case "codeBlock":
       return `<pre><code>${escapeHtml(node.textContent || children.map(renderInlineHtml).join(""))}</code></pre>`;
     case "horizontalRule":

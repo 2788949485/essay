@@ -166,6 +166,7 @@ function renderBlock(node: JSONContent, depth = 0): string {
     case "table":
       return renderTable(node);
     case "blockquote":
+    case "callout":
       return children
         .map((child) => renderBlock(child, depth))
         .join("\n")

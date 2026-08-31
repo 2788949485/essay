@@ -58,6 +58,7 @@ import {
 } from "./utils/text";
 import { BlockFormatExtension, getCurrentBlockFormat } from "./editor/block-format";
 import { CollapsibleBlockExtensions } from "./editor/collapsible-block";
+import { CalloutExtension } from "./editor/callout";
 import { FindHighlightExtension, clearFindHighlights, setFindHighlights } from "./editor/find-highlight";
 import { findInteractiveEditorBlock } from "./editor/interactive-blocks";
 import { NoteLinkSuggestionExtension } from "./editor/note-link-suggestion";
@@ -171,6 +172,7 @@ export default function App() {
       BlockFormatExtension,
       FindHighlightExtension,
       ...CollapsibleBlockExtensions,
+      CalloutExtension,
       ...MathExtensions,
       Underline,
       Link.configure({
@@ -263,6 +265,16 @@ export default function App() {
           }
         }
         return false;
+      },
+      handleDrop: (view, event) => {
+        const dataTransfer = event.dataTransfer;
+        if (!dataTransfer) return false;
+        const imageFile = Array.from(dataTransfer.files).find((item) => item.type.startsWith("image/"));
+        if (!imageFile) return false;
+        event.preventDefault();
+        const pos = view.posAtCoords({ left: event.clientX, top: event.clientY });
+        void handleInsertImage(imageFile, pos?.pos);
+        return true;
       }
     },
     onTransaction: ({ editor }) => {
@@ -1038,7 +1050,7 @@ export default function App() {
     });
   }
 
-  async function handleInsertImage(file: File | undefined) {
+  async function handleInsertImage(file: File | undefined, atPos?: number) {
     if (!editor || !file) return;
     if (!file.type.startsWith("image/")) return;
     // 图片落盘到 attachments/，文档里只存 asset 引用，避免 base64 撑爆文档和数据库
@@ -1051,7 +1063,11 @@ export default function App() {
       binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
     }
     const src = await window.suiji.saveImageAsset({ base64: window.btoa(binary), ext });
-    editor.chain().focus().setImage({ src, alt: file.name }).run();
+    if (typeof atPos === "number") {
+      editor.chain().focus().insertContentAt(atPos, { type: "image", attrs: { src, alt: file.name } }).run();
+    } else {
+      editor.chain().focus().setImage({ src, alt: file.name }).run();
+    }
     markDirty();
   }
 
@@ -1733,6 +1749,12 @@ export default function App() {
       label: "分割线",
       hint: "插入分隔",
       run: () => editor?.chain().focus().setHorizontalRule().run()
+    },
+    {
+      id: "callout",
+      label: "提示块",
+      hint: "信息/提示/警告",
+      run: () => editor?.chain().focus().insertContent({ type: "callout", content: [{ type: "paragraph" }] }).run()
     },
     {
       id: "table",
