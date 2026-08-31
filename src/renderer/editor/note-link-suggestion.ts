@@ -123,7 +123,8 @@ export const NoteLinkSuggestionExtension = Extension.create<NoteLinkSuggestionOp
           const container = document.createElement("div");
           container.className = "note-link-suggestion";
           container.style.display = "none";
-          document.body.appendChild(container);
+          const host = editorView.dom.closest(".app-shell") ?? document.body;
+          host.appendChild(container);
 
           renderDropdown = () => {
             const state = key.getState(editorView.state);

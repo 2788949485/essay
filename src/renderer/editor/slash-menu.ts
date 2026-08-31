@@ -116,7 +116,9 @@ export const SlashMenuExtension = Extension.create<{ getCommands: () => SlashCom
           const container = document.createElement("div");
           container.className = "slash-menu";
           container.style.display = "none";
-          document.body.appendChild(container);
+          // 挂到 .app-shell 内以继承主题变量（--accent-color 等），fixed 定位不受影响
+          const host = editorView.dom.closest(".app-shell") ?? document.body;
+          host.appendChild(container);
 
           // 捕获阶段拦截，避免被编辑器其它按键处理抢占（真机下更可靠）
           const onKeyDown = (event: KeyboardEvent) => {
