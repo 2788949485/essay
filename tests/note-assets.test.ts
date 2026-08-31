@@ -29,8 +29,11 @@ describe("collectAssetFileNames", () => {
         { type: "image", attrs: { src: "suiji-asset://a.png" } },
         {
           type: "collapsibleBlock",
-          attrs: { title: "", open: true },
-          content: [{ type: "image", attrs: { src: "suiji-asset://b.jpg" } }]
+          attrs: { open: true },
+          content: [
+            { type: "collapsibleTitle" },
+            { type: "collapsibleBody", content: [{ type: "image", attrs: { src: "suiji-asset://b.jpg" } }] }
+          ]
         },
         { type: "image", attrs: { src: "https://example.com/c.png" } }
       ]

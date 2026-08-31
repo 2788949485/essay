@@ -88,12 +88,18 @@ describe("getContentPlainText", () => {
         { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "标题" }] },
         {
           type: "collapsibleBlock",
-          attrs: { title: "折叠", open: true },
+          attrs: { open: true },
           content: [
+            { type: "collapsibleTitle", content: [{ type: "text", text: "折叠" }] },
             {
-              type: "collapsibleBlock",
-              attrs: { title: "", open: true },
-              content: []
+              type: "collapsibleBody",
+              content: [
+                {
+                  type: "collapsibleBlock",
+                  attrs: { open: true },
+                  content: [{ type: "collapsibleTitle" }, { type: "collapsibleBody" }]
+                }
+              ]
             }
           ]
         },

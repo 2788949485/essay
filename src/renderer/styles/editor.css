@@ -214,6 +214,7 @@
 /* ---------- 折叠块 ---------- */
 
 .editor-surface .collapsible-block {
+  position: relative;
   margin: 18px 0;
   border-left: 2px solid var(--collapsible-line);
   border-radius: 18px;
@@ -242,14 +243,32 @@
   background: color-mix(in srgb, var(--accent-color) 6%, transparent);
 }
 
-.editor-surface .collapsible-block-header {
-  position: relative;
+/* 拖拽柄与展开箭头绝对定位覆盖在标题行左侧，标题本身是文档内的真实节点 */
+.editor-surface .collapsible-block-chrome {
+  position: absolute;
+  top: 0;
+  left: 18px;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 6px;
+  height: 28px;
+  transition: transform var(--motion-fast) ease;
+}
+
+.editor-surface .collapsible-block-title-wrap {
   min-height: 28px;
   margin-bottom: 8px;
-  transition: transform var(--motion-fast) ease;
+  padding-left: 56px;
+}
+
+.editor-surface .collapsible-block-title-wrap.is-empty .collapsible-block-title::before {
+  content: "空折叠块";
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: var(--subtle-text);
+  pointer-events: none;
 }
 
 .editor-surface .collapsible-block-drag,
@@ -312,18 +331,11 @@
 }
 
 .editor-surface .collapsible-block-title {
-  flex: 1 1 auto;
+  position: relative;
   min-width: 0;
-  border: 0;
-  background: transparent;
   color: var(--text-color);
-  font: inherit;
   padding: 2px 0;
   transition: color var(--motion-fast) ease;
-}
-
-.editor-surface .collapsible-block-title::placeholder {
-  color: var(--subtle-text);
 }
 
 .editor-surface .collapsible-block-title:focus {
@@ -331,9 +343,16 @@
 }
 
 .editor-surface .collapsible-block-menu-wrap {
-  position: relative;
-  flex: 0 0 auto;
-  margin-left: auto;
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+}
+
+.editor-surface .collapsible-block-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
 }
 
 .editor-surface .collapsible-block-menu-trigger {
@@ -365,7 +384,7 @@
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  z-index: 6;
+  z-index: 61;
   min-width: 104px;
   border: 1px solid var(--panel-border);
   border-radius: 14px;
@@ -466,8 +485,8 @@
   transform: rotate(-90deg);
 }
 
-.editor-surface .collapsible-block.is-hovered-block .collapsible-block-header,
-.editor-surface .collapsible-block.is-current-block .collapsible-block-header {
+.editor-surface .collapsible-block.is-hovered-block .collapsible-block-chrome,
+.editor-surface .collapsible-block.is-current-block .collapsible-block-chrome {
   transform: translateX(1px);
 }
 

@@ -48,6 +48,7 @@ import {
   safeExportBaseName,
   safeExportName
 } from "./note-transfer.js";
+import { upgradeCollapsibleContent } from "../shared/content-upgrade.js";
 import { parseEncryptedExportBundle } from "../shared/encrypted-export.js";
 import { ASSET_URL_PREFIX, collectAssetFileNames } from "../shared/note-assets.js";
 import type {
@@ -613,7 +614,8 @@ function normalizeNote(raw: Partial<NoteRecord>): NoteRecord {
     archivedAt: typeof raw.archivedAt === "string" ? raw.archivedAt : null,
     trashedAt: typeof raw.trashedAt === "string" ? raw.trashedAt : null,
     pinnedAt: typeof raw.pinnedAt === "string" ? raw.pinnedAt : null,
-    content: raw.content ?? emptyDoc,
+    // 旧折叠块的标题存在节点属性里，统一升级为文档内的标题/内容节点
+    content: upgradeCollapsibleContent(raw.content ?? emptyDoc),
     html: typeof raw.html === "string" ? raw.html : "",
     plainText: typeof raw.plainText === "string" ? raw.plainText : "",
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : now,

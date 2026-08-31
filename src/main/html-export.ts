@@ -151,9 +151,12 @@ function renderBlockHtml(node: JsonNode): string {
     case "tableCell":
       return renderTableCellHtml(node);
     case "collapsibleBlock": {
-      const title = escapeHtml(typeof node.attrs?.title === "string" ? node.attrs.title : "折叠块");
+      const titleNode = children.find((child) => child.type === "collapsibleTitle");
+      const bodyNode = children.find((child) => child.type === "collapsibleBody");
+      const title = (titleNode?.content ?? []).map(renderInlineHtml).join("") || "折叠块";
+      const body = (bodyNode?.content ?? []).map(renderBlockHtml).join("") || "<p></p>";
       const open = node.attrs?.open ? " open" : "";
-      return `<details data-type="collapsible-block"${open}><summary>${title}</summary><div>${children.map(renderBlockHtml).join("") || "<p></p>"}</div></details>`;
+      return `<details data-type="collapsible-block"${open}><summary>${title}</summary><div data-type="collapsible-body">${body}</div></details>`;
     }
     case "mathBlock":
       return `<div class="math-block">${katexHtml(String(node.attrs?.latex ?? ""), true)}</div>`;

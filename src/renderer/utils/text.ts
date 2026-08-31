@@ -155,14 +155,6 @@ export function getContentPlainText(content: JSONContent | undefined) {
       return;
     }
 
-    if (node.type === "collapsibleBlock") {
-      const title = String(node.attrs?.title ?? "").trim();
-      if (title) {
-        parts.push(title);
-        parts.push("\n");
-      }
-    }
-
     (node.content ?? []).forEach(walk);
 
     if (
@@ -174,6 +166,7 @@ export function getContentPlainText(content: JSONContent | undefined) {
         "listItem",
         "taskItem",
         "collapsibleBlock",
+        "collapsibleTitle",
         "tableRow"
       ].includes(node.type ?? "")
     ) {

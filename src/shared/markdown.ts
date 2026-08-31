@@ -114,9 +114,12 @@ function renderTable(node: JSONContent) {
 }
 
 function renderCollapsibleBlock(node: JSONContent, depth = 0): string {
-  const title = escapeText(String(node.attrs?.title ?? "").trim() || "空折叠块");
+  const children = node.content ?? [];
+  const titleNode = children.find((child) => child.type === "collapsibleTitle");
+  const bodyNode = children.find((child) => child.type === "collapsibleBody");
+  const title = renderInline(titleNode ?? {}).trim() || "空折叠块";
   const indent = "  ".repeat(depth);
-  const nested = (node.content ?? [])
+  const nested = (bodyNode?.content ?? [])
     .map((child) => {
       if (child.type === "collapsibleBlock") {
         return renderCollapsibleBlock(child, depth + 1);

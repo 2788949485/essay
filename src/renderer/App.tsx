@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEditor } from "@tiptap/react";
-import type { JSONContent } from "@tiptap/react";
 import { TextSelection } from "@tiptap/pm/state";
 import { Fragment, Slice } from "@tiptap/pm/model";
 import StarterKit from "@tiptap/starter-kit";
@@ -58,7 +57,7 @@ import {
   type OpenTask
 } from "./utils/text";
 import { BlockFormatExtension, getCurrentBlockFormat } from "./editor/block-format";
-import { CollapsibleBlockExtension } from "./editor/collapsible-block";
+import { CollapsibleBlockExtensions } from "./editor/collapsible-block";
 import { FindHighlightExtension, clearFindHighlights, setFindHighlights } from "./editor/find-highlight";
 import { findInteractiveEditorBlock } from "./editor/interactive-blocks";
 import { NoteLinkSuggestionExtension } from "./editor/note-link-suggestion";
@@ -168,7 +167,7 @@ export default function App() {
       CodeBlockExtension.configure({ lowlight, defaultLanguage: null }),
       BlockFormatExtension,
       FindHighlightExtension,
-      CollapsibleBlockExtension,
+      ...CollapsibleBlockExtensions,
       ...MathExtensions,
       Underline,
       Link.configure({
@@ -427,29 +426,23 @@ export default function App() {
     applyBlockFormat({ colorToken: "default", customColor: event.target.value });
   }
 
-  function createEmptyCollapsibleBlock(): JSONContent {
-    return {
-      type: "collapsibleBlock",
-      attrs: { title: "", open: false }
-    };
-  }
-
-  function focusInsertedCollapsibleTitle(atPos: number) {
-    window.requestAnimationFrame(() => {
-      const dom = editor?.view.nodeDOM(atPos) as HTMLElement | null;
-      const input = dom?.querySelector(".collapsible-block-title") as HTMLInputElement | null;
-      input?.focus();
-    });
-  }
-
   function insertCollapsibleBlock() {
     if (!editor || activeNote?.trashedAt) return;
     const { selection } = editor.state;
     const selectedNode = selection.$from.nodeAfter;
     const insertPos = selectedNode?.type.name === "collapsibleBlock" ? selection.to : selection.from;
 
-    editor.chain().focus().insertContentAt(insertPos, createEmptyCollapsibleBlock()).run();
-    focusInsertedCollapsibleTitle(insertPos);
+    // 标题是文档内的真实节点：插入块后直接把光标落进标题（块起始 +1 进块、再 +1 进标题内容）
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(insertPos, {
+        type: "collapsibleBlock",
+        attrs: { open: false },
+        content: [{ type: "collapsibleTitle" }, { type: "collapsibleBody" }]
+      })
+      .setTextSelection(insertPos + 2)
+      .run();
   }
 
   function insertMathBlock() {
