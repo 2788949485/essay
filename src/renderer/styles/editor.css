@@ -861,3 +861,34 @@
   color: var(--text-color);
 }
 .editor-surface .callout-danger .callout-icon { color: #ef4444; }
+
+/* ---------- 图片缩放 ---------- */
+
+.editor-surface .image-block {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.editor-surface .image-block img {
+  display: block;
+  max-width: 100%;
+  border-radius: 8px;
+}
+
+.editor-surface .image-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--accent-color);
+  cursor: nwse-resize;
+  opacity: 0;
+  transition: opacity var(--motion-fast) ease;
+}
+
+.editor-surface .image-block:hover .image-resize-handle {
+  opacity: 1;
+}

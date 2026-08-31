@@ -6,7 +6,7 @@ import { Fragment, Slice } from "@tiptap/pm/model";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
-import Image from "@tiptap/extension-image";
+import { ResizableImageExtension } from "./editor/image-resize";
 import { EditorPlaceholder } from "./editor/placeholder";
 import Table from "@tiptap/extension-table";
 import TableCell from "@tiptap/extension-table-cell";
@@ -181,7 +181,7 @@ export default function App() {
         openOnClick: false
       }),
       SafeAutolink,
-      Image.configure({
+      ResizableImageExtension.configure({
         inline: false,
         allowBase64: true
       }),

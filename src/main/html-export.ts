@@ -143,7 +143,8 @@ function renderBlockHtml(node: JsonNode): string {
       const src = safeHtmlUrl(node.attrs?.src);
       if (!src) return "";
       const alt = escapeHtmlAttribute(typeof node.attrs?.alt === "string" ? node.attrs.alt : "");
-      return `<img src="${escapeHtmlAttribute(src)}" alt="${alt}">`;
+      const width = typeof node.attrs?.width === "number" ? ` width="${node.attrs.width}"` : "";
+      return `<img src="${escapeHtmlAttribute(src)}" alt="${alt}"${width}>`;
     }
     case "table":
       return renderTableHtml(node);
