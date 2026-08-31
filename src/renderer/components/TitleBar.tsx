@@ -62,6 +62,10 @@ export function TitleBar(props: TitleBarProps) {
   return (
     <div className="titlebar" ref={rootRef}>
       <div className="titlebar-leading">
+        <span className="titlebar-brand" aria-hidden="true">
+          <i className="titlebar-logo" />
+          随记
+        </span>
         <button
           type="button"
           className="icon-button titlebar-menu-trigger"
@@ -72,14 +76,9 @@ export function TitleBar(props: TitleBarProps) {
         >
           <MenuIcon size={18} />
         </button>
-        <span className="titlebar-brand" aria-hidden="true">
-          <i className="titlebar-logo" />
-          随记
-        </span>
-      </div>
 
-      {menuOpen ? (
-        <div className="titlebar-menu" role="menu" aria-label="应用菜单">
+        {menuOpen ? (
+          <div className="titlebar-menu" role="menu" aria-label="应用菜单">
           <button type="button" role="menuitem" onClick={act(props.onCreateNote)}>
             新建记录
           </button>
@@ -137,8 +136,9 @@ export function TitleBar(props: TitleBarProps) {
           <button type="button" role="menuitem" onClick={act(props.onQuit)}>
             退出
           </button>
-        </div>
-      ) : null}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
