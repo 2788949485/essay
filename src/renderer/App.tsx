@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useEditor } from "@tiptap/react";
+import type { JSONContent } from "@tiptap/react";
 import { TextSelection } from "@tiptap/pm/state";
 import { Fragment, Slice } from "@tiptap/pm/model";
 import StarterKit from "@tiptap/starter-kit";
@@ -1239,13 +1240,55 @@ export default function App() {
     }
   }
 
+  function localDateStr(date = new Date()) {
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  }
+
+  async function openDailyNote() {
+    const today = localDateStr();
+    const existing = notesRef.current.find((note) => !note.trashedAt && note.title === today);
+    if (existing) {
+      setViewMode("active");
+      void handleSelectNote(existing.id);
+      return;
+    }
+    const created = await window.suiji.createNote();
+    const note = await window.suiji.saveNote({ ...created, title: today });
+    setNotes((current) => sortNotes([note, ...current]));
+    setViewMode("active");
+    setActiveId(note.id);
+  }
+
+  function substituteTemplateVars(node: JSONContent): JSONContent {
+    const now = new Date();
+    const vars: Record<string, string> = {
+      title: title || "未命名记录",
+      date: localDateStr(now),
+      time: `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
+    };
+    const walk = (n: JSONContent): JSONContent => ({
+      ...n,
+      text: typeof n.text === "string" ? n.text.replace(/\{\{(title|date|time)\}\}/g, (_m, k) => vars[k]) : n.text,
+      content: n.content?.map(walk)
+    });
+    return walk(node);
+  }
+
+  function insertTemplate(templateNote: NoteRecord) {
+    if (!editor) return;
+    const content = (templateNote.content?.content ?? []).map(substituteTemplateVars);
+    editor.chain().focus().insertContent(content).run();
+    markDirty();
+  }
+
   const paletteItems = useMemo<CommandPaletteItem[]>(() => {
     const commands: CommandPaletteItem[] = [
       { id: "new", kind: "command", label: "新建记录", run: () => void handleCreate() },
       { id: "find", kind: "command", label: "文档内查找", run: () => openFindPanel(false) },
       { id: "theme", kind: "command", label: settings?.theme === "dark" ? "切换到浅色模式" : "切换到深色模式", run: () => void toggleTheme() },
       { id: "history", kind: "command", label: "当前记录的历史版本", run: () => void handleOpenHistory() },
-      { id: "settings", kind: "command", label: "打开设置", run: () => openSettings() }
+      { id: "settings", kind: "command", label: "打开设置", run: () => openSettings() },
+      { id: "daily", kind: "command", label: "每日笔记（打开/创建今日）", run: () => void openDailyNote() }
     ];
     const views: CommandPaletteItem[] = (
       [
@@ -1277,7 +1320,15 @@ export default function App() {
         hint: note.excerpt.slice(0, 40),
         run: () => void handleSelectNote(note.id)
       }));
-    return [...commands, ...views, ...noteItems];
+    const templateItems: CommandPaletteItem[] = notes
+      .filter((note) => !note.trashedAt && note.folder === "模板")
+      .map((note) => ({
+        id: `tpl-${note.id}`,
+        kind: "command",
+        label: `插入模板：${note.title || "未命名记录"}`,
+        run: () => insertTemplate(note)
+      }));
+    return [...commands, ...views, ...templateItems, ...noteItems];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notes, settings?.theme]);
 
