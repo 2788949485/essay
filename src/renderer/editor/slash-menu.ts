@@ -51,6 +51,26 @@ export const SlashMenuExtension = Extension.create<{ getCommands: () => SlashCom
       item.run();
     }
 
+    function handleKey(view: EditorView, event: KeyboardEvent): boolean {
+      const state = key.getState(view.state);
+      if (!state?.open) return false;
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        const delta = event.key === "ArrowDown" ? 1 : -1;
+        const index = (state.index + delta + state.items.length) % state.items.length;
+        view.dispatch(view.state.tr.setMeta(key, { type: "move", index } satisfies SlashMeta));
+        return true;
+      }
+      if (event.key === "Enter") {
+        runCommand(view, state, state.index);
+        return true;
+      }
+      if (event.key === "Escape") {
+        view.dispatch(view.state.tr.setMeta(key, { type: "close" } satisfies SlashMeta));
+        return true;
+      }
+      return false;
+    }
+
     return [
       new Plugin<SlashState>({
         key,
@@ -89,25 +109,7 @@ export const SlashMenuExtension = Extension.create<{ getCommands: () => SlashCom
         },
         props: {
           handleKeyDown(view, event) {
-            const state = key.getState(view.state);
-            if (!state?.open) return false;
-            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-              event.preventDefault();
-              const delta = event.key === "ArrowDown" ? 1 : -1;
-              const index = (state.index + delta + state.items.length) % state.items.length;
-              view.dispatch(view.state.tr.setMeta(key, { type: "move", index } satisfies SlashMeta));
-              return true;
-            }
-            if (event.key === "Enter") {
-              event.preventDefault();
-              runCommand(view, state, state.index);
-              return true;
-            }
-            if (event.key === "Escape") {
-              view.dispatch(view.state.tr.setMeta(key, { type: "close" } satisfies SlashMeta));
-              return true;
-            }
-            return false;
+            return handleKey(view, event);
           }
         },
         view(editorView) {
@@ -115,6 +117,15 @@ export const SlashMenuExtension = Extension.create<{ getCommands: () => SlashCom
           container.className = "slash-menu";
           container.style.display = "none";
           document.body.appendChild(container);
+
+          // 捕获阶段拦截，避免被编辑器其它按键处理抢占（真机下更可靠）
+          const onKeyDown = (event: KeyboardEvent) => {
+            if (handleKey(editorView, event)) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+          };
+          editorView.dom.addEventListener("keydown", onKeyDown, true);
 
           const render = () => {
             const state = key.getState(editorView.state);
@@ -149,6 +160,7 @@ export const SlashMenuExtension = Extension.create<{ getCommands: () => SlashCom
           return {
             update: render,
             destroy() {
+              editorView.dom.removeEventListener("keydown", onKeyDown, true);
               container.remove();
             }
           };
