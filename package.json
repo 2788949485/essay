@@ -105,6 +105,7 @@
     "eslint": "^10.9.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",
+    "jsdom": "^30.0.1",
     "lucide-react": "^0.468.0",
     "prettier": "^3.9.6",
     "react": "^18.3.1",
