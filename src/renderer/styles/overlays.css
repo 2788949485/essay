@@ -850,7 +850,16 @@ input[type="range"] {
   white-space: nowrap;
 }
 
-.slash-menu-item.is-active,
 .slash-menu-item:hover {
   background: var(--surface-hover);
+}
+
+/* 键盘选中项：琥珀左色条+强调色标题+更深底色，明显区别于 hover */
+.slash-menu-item.is-active {
+  background: var(--surface-active);
+  box-shadow: inset 2px 0 0 var(--accent-color);
+}
+
+.slash-menu-item.is-active strong {
+  color: var(--accent-color);
 }
