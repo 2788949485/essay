@@ -7,7 +7,6 @@ import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
 import { ResizableImageExtension } from "./editor/image-resize";
-import { DragHandle } from "@tiptap/extension-drag-handle";
 import { EditorPlaceholder } from "./editor/placeholder";
 import Table from "@tiptap/extension-table";
 import TableCell from "@tiptap/extension-table-cell";
@@ -176,22 +175,6 @@ export default function App() {
       FindHighlightExtension,
       ...CollapsibleBlockExtensions,
       CalloutExtension,
-      DragHandle.configure({
-        render: () => {
-          const el = document.createElement("div");
-          el.className = "block-drag-handle";
-          el.title = "拖动";
-          el.draggable = true;
-          el.innerHTML =
-            '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="2"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="9" cy="18" r="2"/><circle cx="15" cy="18" r="2"/></svg>';
-          return el;
-        },
-        tippyOptions: {
-          placement: "left",
-          offset: [10, 0],
-          delay: 80
-        }
-      }),
       ...MathExtensions,
       Underline,
       Link.configure({

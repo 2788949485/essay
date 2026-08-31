@@ -950,27 +950,3 @@
   font-size: 11px;
   font-style: normal;
 }
-
-/* ---------- 全块拖拽柄（悬浮出现） ---------- */
-
-.block-drag-handle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  color: var(--subtle-text);
-  cursor: grab;
-  background: var(--surface-raised);
-  border: 1px solid var(--panel-border);
-}
-
-.block-drag-handle:hover {
-  color: var(--text-color);
-  background: var(--surface-hover);
-}
-
-.block-drag-handle:active {
-  cursor: grabbing;
-}
