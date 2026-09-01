@@ -21,6 +21,16 @@ type EditorAreaProps = {
   onImageChosen: (file: File | undefined) => void;
 };
 
+/** 光标位于列表/任务项内部时隐藏悬浮 +，避免遮住任务复选框 */
+function inListItemContext(editor: Editor) {
+  const { $from } = editor.state.selection;
+  for (let depth = $from.depth - 1; depth > 0; depth -= 1) {
+    const name = $from.node(depth).type.name;
+    if (name === "taskItem" || name === "listItem") return true;
+  }
+  return false;
+}
+
 export function EditorArea(props: EditorAreaProps) {
   const {
     editor,
@@ -75,7 +85,7 @@ export function EditorArea(props: EditorAreaProps) {
             offset: [0, 8],
             zIndex: 40000
           }}
-          shouldShow={({ editor }) => isEmptyParagraphSelection(editor) && !trashed}
+          shouldShow={({ editor }) => isEmptyParagraphSelection(editor) && !trashed && !inListItemContext(editor)}
         >
           <div className="block-insert-anchor">
             <button
